@@ -423,7 +423,7 @@
   },
 };
 
-let currentLang = 'en';
+let currentLang = 'zh';
 
 function getByPath(obj, path) {
   return path.split('.').reduce((acc, key) => (acc && key in acc ? acc[key] : undefined), obj);
@@ -442,16 +442,22 @@ export function setLanguage(lang) {
   currentLang = lang === 'zh' ? 'zh' : 'en';
   try { localStorage.setItem('planner_lang', currentLang); } catch {}
   applyStaticTranslations(document);
+  if (typeof document !== 'undefined') {
+    document.title = t('ui.title');
+  }
 }
 
 export function initLanguage() {
   try {
     const saved = localStorage.getItem('planner_lang');
-    currentLang = saved === 'zh' ? 'zh' : 'en';
+    currentLang = saved === 'zh' || saved === 'en' ? saved : 'zh';
   } catch {
-    currentLang = 'en';
+    currentLang = 'zh';
   }
   applyStaticTranslations(document);
+  if (typeof document !== 'undefined') {
+    document.title = t('ui.title');
+  }
   return currentLang;
 }
 
