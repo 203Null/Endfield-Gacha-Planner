@@ -20,6 +20,15 @@ let _mouseenterHandler = null;
 let _mouseleaveHandler = null;
 let _keydownHandler = null;
 
+function tr(path, fallback) {
+  const value = t(path);
+  return value === path ? fallback : value;
+}
+
+function trResultLabel(label) {
+  return tr(`resultLabels.${label}`, label);
+}
+
 function setShareButtonDefault() {
   const btn = document.getElementById('share-btn');
   if (!btn) return;
@@ -514,7 +523,7 @@ function renderBannerInspector(bannerLogs) {
   if (!bannerLogs || bannerLogs.length === 0) return '';
 
   let html = `<div class="banner-inspector-header">`;
-  html += `<h3>Sample Trial — Banner Inspector</h3>`;
+  html += `<h3>${tr('result.sampleTrial', 'Sample Trial — Banner Inspector')}</h3>`;
   html += `<label class="advanced-toggle" data-tip="Shows per-pull details: 6★ Rate (effective rate at that pity), Roll (main RNG roll vs rate), Sub-rolls (50/50 rate-up roll / standard vs limited roll), Pity (hard pity or guarantee override)."><input type="checkbox" class="advanced-toggle-input"> Advanced</label>`;
   html += `</div>`;
   html += `<div class="banner-inspector">`;
@@ -541,14 +550,14 @@ function renderBannerInspector(bannerLogs) {
     // Banner summary line
     html += `<div class="banner-summary">`;
     html += `<span>Banner ${b.serial}</span>`;
-    html += `<span class="sep">Â·</span>`;
+    html += `<span class="sep">·</span>`;
     html += `<span>${b.pullCount} paid</span>`;
-    if (b.bonus30PullCount > 0) html += `<span class="sep">Â·</span><span>${b.bonus30PullCount} bonus30</span>`;
-    html += `<span class="sep">Â·</span>`;
-    if (b.gotRateUp) html += `<span class="six-star-rateup">âœ“ rate-up</span>`;
+    if (b.bonus30PullCount > 0) html += `<span class="sep">·</span><span>${b.bonus30PullCount} bonus30</span>`;
+    html += `<span class="sep">·</span>`;
+    if (b.gotRateUp) html += `<span class="six-star-rateup">✓ rate-up</span>`;
     else html += `<span class="dim">no rate-up</span>`;
     if (sixStars > 0) {
-      html += `<span class="sep">Â·</span><span class="gold">${sixStars}Ã— 6★</span>`;
+      html += `<span class="sep">·</span><span class="gold">${sixStars}x 6★</span>`;
     }
     html += `</div>`;
 
@@ -803,42 +812,42 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
   const hardSpendPulls = hardSpendOrbs / ORBS_PER_PULL;
   const costPerPull = currency.hardSpendCost / hardSpendPulls;
 
-  html += `<h3>Parameters</h3>`;
+  html += `<h3>${tr('result.parameters', 'Parameters')}</h3>`;
   html += `<div class="stat-grid">`;
   html += statRow('Trials', config.numTrials.toLocaleString());
   html += statRow('Max Banners', config.maxBanners.toLocaleString());
-  if (config.startWithCharteredHH) html += statRow('Start with Chartered HH', 'Yes', 'blue', false, 'The 1st banner starts with 10 bonus pity-building pulls from the 60-pull Chartered Headhunting bonus.');
+  if (config.startWithCharteredHH) html += statRow('Start with Chartered HH', tr('result.yes', 'Yes'), 'blue', false, 'The 1st banner starts with 10 bonus pity-building pulls from the 60-pull Chartered Headhunting bonus.');
   if (config.seed != null) html += statRow('Seed', config.seed.toString(), '', false, 'Fixed RNG seed for reproducible results.');
   if (config.startFiveStarPity > 0) html += statRow('Starting 5★ Pity', config.startFiveStarPity.toString(), '', false, 'Pulls since last 5★ at the start of the 1st banner.');
   if (config.startSixStarPity > 0) html += statRow('Starting 6★ Pity', config.startSixStarPity.toString(), '', false, 'Pulls since last 6★ at the start of the 1st banner.');
-  html += statRow('Banner Length', `${bannerLength} days`);
-  html += statRow('Welfare Pulls', `${welfarePulls} /banner`, '', false,
+  html += statRow('Banner Length', `${bannerLength} ${tr('result.days', 'days')}`);
+  html += statRow('Welfare Pulls', `${welfarePulls} ${tr('result.perBanner', '/banner')}`, '', false,
     'Free pulls assumed per banner (from events, maintenance, etc.)');
   html += `</div>`;
 
   // Banners
   const avgBannersSkipped = sumBannersSkipped / n;
-  html += `<h3 class="has-tip" data-tip="Statistics about banner engagement across all trials.">Banners <span class="tip-icon">?</span></h3>`;
+  html += `<h3 class="has-tip" data-tip="Statistics about banner engagement across all trials.">${tr('result.banners', 'Banners')} <span class="tip-icon">?</span></h3>`;
   html += `<div class="stat-grid">`;
   html += statRow('Banners Skipped', avgBannersSkipped.toFixed(1), '', false,
     `Banners where the strategy would stop before any pulls are made â€” i.e. the player had no intention of pulling on this banner. Average across ${n} trials.`);
   html += `</div>`;
 
   // Paid Pulls â€” hero mean + histogram
-  html += `<h3 class="has-tip" data-tip="Distribution of total paid pulls across all trials. P50 = median (half of simulated players needed fewer). P5 = lucky (only 5% did better). P95 = unlucky (only 5% did worse).">Paid Pulls <span class="tip-icon">?</span></h3>`;
+  html += `<h3 class="has-tip" data-tip="Distribution of total paid pulls across all trials. P50 = median (half of simulated players needed fewer). P5 = lucky (only 5% did better). P95 = unlucky (only 5% did worse).">${tr('result.paidPulls', 'Paid Pulls')} <span class="tip-icon">?</span></h3>`;
   const meanPaid = mean(paidPulls);
   const paidPerBanner = meanPaid / (sumBanners / n);
   html += `<div class="paid-pulls-hero">`;
-  html += `<div class="hero-stat has-tip" data-tip="If you followed this strategy for ${config.maxBanners} banners, you'd spend about this many paid pulls in total, on average."><div class="hero-num">${meanPaid.toFixed(0)}</div><div class="hero-label">mean pulls <span class="tip-icon">?</span></div></div>`;
-  html += `<div class="hero-stat has-tip" data-tip="If you followed this strategy for ${config.maxBanners} banners, you'd spend about this many paid pulls on a typical banner."><div class="hero-num">${paidPerBanner.toFixed(2)}</div><div class="hero-label-row"><div class="hero-label">pulls/banner<br>(all)</div><span class="tip-icon">?</span></div></div>`;
+  html += `<div class="hero-stat has-tip" data-tip="If you followed this strategy for ${config.maxBanners} banners, you'd spend about this many paid pulls in total, on average."><div class="hero-num">${meanPaid.toFixed(0)}</div><div class="hero-label">${tr('result.meanPulls', 'mean pulls')} <span class="tip-icon">?</span></div></div>`;
+  html += `<div class="hero-stat has-tip" data-tip="If you followed this strategy for ${config.maxBanners} banners, you'd spend about this many paid pulls on a typical banner."><div class="hero-num">${paidPerBanner.toFixed(2)}</div><div class="hero-label-row"><div class="hero-label">${tr('result.pullsBannerAll', 'pulls/banner<br>(all)')}</div><span class="tip-icon">?</span></div></div>`;
   const targetBanners = config.maxBanners - avgBannersSkipped;
   const paidPerTarget = targetBanners > 0 ? meanPaid / targetBanners : 0;
-  html += `<div class="hero-stat has-tip" data-tip="Average paid pulls per banner you actually intended to pull on (excluding ${avgBannersSkipped.toFixed(1)} skipped banners)."><div class="hero-num">${paidPerTarget.toFixed(2)}</div><div class="hero-label-row"><div class="hero-label">pulls/banner<br>(target)</div><span class="tip-icon">?</span></div></div>`;
+  html += `<div class="hero-stat has-tip" data-tip="Average paid pulls per banner you actually intended to pull on (excluding ${avgBannersSkipped.toFixed(1)} skipped banners)."><div class="hero-num">${paidPerTarget.toFixed(2)}</div><div class="hero-label-row"><div class="hero-label">${tr('result.pullsBannerTarget', 'pulls/banner<br>(target)')}</div><span class="tip-icon">?</span></div></div>`;
   html += `</div>`;
   html += renderDistribution(paidPulls, n);
 
   // Bonus Pulls
-  html += `<h3>Bonus Pulls</h3>`;
+  html += `<h3>${tr('result.bonusPulls', 'Bonus Pulls')}</h3>`;
   html += `<div class="stat-grid">`;
   html += statRow('Banner Specific', (sumWelfare / n).toFixed(1), '', false, 'Free pulls given at the start of each banner (e.g. sign-in rewards, event handouts). These are regular pulls that obey all pity rules.');
   html += statRow('30-pull bonus', (sumBonus30 / n).toFixed(1), '', false,
@@ -850,7 +859,7 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
   // Total Pulls
   const meanTotal = mean(totalPulls);
   const totalPerBanner = meanTotal / (sumBanners / n);
-  html += `<h3>Total Pulls</h3>`;
+  html += `<h3>${tr('result.totalPulls', 'Total Pulls')}</h3>`;
   html += `<div class="stat-grid">`;
   html += statRow('Mean', meanTotal.toFixed(1), '', false,
     `If you followed this strategy for ${config.maxBanners} banners, your account would make about this many total pulls (paid + welfare + all bonuses).`);
@@ -866,7 +875,7 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
   const avgLimited = sumLimited / n;
   const avgStandard = sumStandard / n;
   const avgSixTotal = avgRateUp + avgLimited + avgStandard;
-  html += `<h3>Characters</h3>`;
+  html += `<h3>${tr('result.characters', 'Characters')}</h3>`;
   html += `<div class="stat-grid">`;
   html += statRow('4★', avgFour.toFixed(2), '', false,
     `If you followed this strategy for ${config.maxBanners} banners, you'd pull about this many 4\u2605 characters in total.`);
@@ -895,7 +904,7 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
   html += `</div>`;
 
   // Pulls per 6-star
-  html += `<h3>Pulls per 6★</h3>`;
+  html += `<h3>${tr('result.pullsPerSix', 'Pulls per 6★')}</h3>`;
   html += `<div class="stat-grid">`;
   if (sumRateUp > 0) html += statRow('Paid / rate-up', (sumPaid / sumRateUp).toFixed(2), 'gold', false,
     'On average, you\'d spend this many paid pulls for each copy of the rate-up character.');
@@ -904,7 +913,7 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
   html += `</div>`;
 
   // Arsenal Tickets
-  html += `<h3>Arsenal Tickets</h3>`;
+  html += `<h3>${tr('result.arsenalTickets', 'Arsenal Tickets')}</h3>`;
   html += `<div class="stat-grid">`;
   html += statRow('From 4★', Math.round(arsenalFrom4), '', false, 'Each 4★ character → 20 Arsenal Tickets.') + '<div></div>';
   html += statRow('From 5★', Math.round(arsenalFrom5), '', false, 'Each 5★ character → 200 Arsenal Tickets.') + '<div></div>';
@@ -919,7 +928,7 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
   html += `</div>`;
 
   // Quota Exchange
-  html += `<h3>Quota Exchange</h3>`;
+  html += `<h3>${tr('result.quotaExchange', 'Quota Exchange')}</h3>`;
   html += `<div class="stat-grid">`;
   html += statRow('Bond Quota', bondQuota.toFixed(0), '', false, 'Each 5★ duplicate → 10 Bond Quota (6★ dupes give 50, but not counted here). Assumes all 5★ at max potential.');
   html += statRow('→ HH Ticket', refundTickets.toFixed(1));
@@ -945,7 +954,7 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
   const withMonthly = shortfall - monthlyCardPulls;
   const withMonthlyBundle = withMonthly - bundlePulls;
 
-  html += `<h3>Money, Money, Money</h3>`;
+  html += `<h3>${tr('result.money', 'Money, Money, Money')}</h3>`;
   const mcCostPerPull = monthlyCardProrated / monthlyCardPulls;
   html += packRow('Monthly Card',
     [`${fmtMoney(currency.monthlyCard)}/30d`, `${fmtMoney(monthlyCardProrated)}/${bannerLength}d`, `${monthlyCardPulls.toFixed(1)} pulls @ ${fmtMoney(mcCostPerPull)}/pull`],
@@ -986,7 +995,7 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
   html += `</div>`;
 
   // Pull Distribution (tabbed: Termination / Rate-Up 6★)
-  html += `<h3>Pull Distribution</h3>`;
+  html += `<h3>${tr('result.pullDistribution', 'Pull Distribution')}</h3>`;
   html += renderPullDistSection(terminationCounts, rateUpCounts);
 
   // Banner inspector (sample trial)
@@ -1002,7 +1011,7 @@ function packRow(label, items, tipText) {
   const tipClass = tipText ? ' has-tip' : '';
   const pills = items.map(t => `<span class="pack-pill">${t}</span>`).join('<span class="pack-arrow">→</span>');
   return `<div class="pack-row"${tipAttr}>
-    <span class="stat-label${tipClass}">${label}${tipText ? ' <span class="tip-icon">?</span>' : ''}</span>
+    <span class="stat-label${tipClass}">${trResultLabel(label)}${tipText ? ' <span class="tip-icon">?</span>' : ''}</span>
     <span class="pack-pills">${pills}</span>
   </div>`;
 }
@@ -1012,7 +1021,7 @@ function statRow(label, value, colorClass, span, tipOverride) {
   const tipAttr = tooltip ? ` data-tip="${escapeHtml(tooltip)}"` : '';
   const tipClass = tooltip ? ' has-tip' : '';
   return `<div class="stat-row${span ? ' span-2' : ''}"${tipAttr}>
-    <span class="stat-label${tipClass}">${label}${tooltip ? ' <span class="tip-icon">?</span>' : ''}</span>
+    <span class="stat-label${tipClass}">${trResultLabel(label)}${tooltip ? ' <span class="tip-icon">?</span>' : ''}</span>
     <span class="stat-value${colorClass ? ' ' + colorClass : ''}">${value}</span>
   </div>`;
 }
