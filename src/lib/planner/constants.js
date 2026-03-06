@@ -2,6 +2,17 @@
 export const ORIGEOMETRY_TO_OROBERYL = 75;
 
 export const CURRENCIES = {
+  RMB: {
+    symbol: '¥',
+    name: 'RMB',
+    defaults: {
+      monthlyCard: 30,
+      bundle: 98,
+      hardSpendCost: 648,
+      hardSpendQty: 350,
+      hardSpendCurrency: 'origeometry',
+    },
+  },
   JPY: {
     symbol: '¥',
     name: 'JPY',

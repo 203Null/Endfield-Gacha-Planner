@@ -11,7 +11,7 @@
 <header>
   <div class="header-row-top">
     <div class="header-title">
-      <h1><a href="https://endfield-gacha.exe.xyz/" class="title-link">Endfield Money Bye Bye Planner</a></h1>
+      <h1><a href="https://endfield-gacha.exe.xyz/" class="title-link" data-i18n="ui.title">Endfield Money Bye Bye Planner</a></h1>
       <a href="https://www.reddit.com/user/shasderias/" class="author-link" target="_blank" rel="noopener noreferrer">/u/shasderias</a>
       <a href="https://github.com/203Null" class="author-link" target="_blank" rel="noopener noreferrer">203Null</a>
     </div>
@@ -80,6 +80,7 @@
         <select id="currency-select">
           <option value="JPY">¥ JPY</option>
           <option value="USD">$ USD</option>
+          <option value="RMB" selected>¥ RMB</option>
         </select>
       </label>
       <label class="field has-tip" data-i18n-tip="tip.monthlyCard" data-tip="Price of the Monthly Card in the selected currency.">

@@ -29,6 +29,21 @@ function trResultLabel(label) {
   return tr(`resultLabels.${label}`, label);
 }
 
+function trOutcomeLabel(label) {
+  if (label === '6★ Rate-Up') return tr('result.outcomeRateUpSix', label);
+  if (label === '6★ Limited') return tr('result.outcomeLimitedSix', label);
+  if (label === '6★ Standard') return tr('result.outcomeStandardSix', label);
+  return label;
+}
+
+function trPullTypeLabel(label) {
+  if (label === 'Normal') return tr('result.normal', label);
+  if (label === 'Bonus 30') return tr('result.bonus30', label);
+  if (label === 'Bonus 60') return tr('result.bonus60', label);
+  if (label === 'Welfare') return tr('result.welfare', label);
+  return label;
+}
+
 function setShareButtonDefault() {
   const btn = document.getElementById('share-btn');
   if (!btn) return;
@@ -37,8 +52,8 @@ function setShareButtonDefault() {
 
 function getSelectedCurrency() {
   const sel = document.getElementById('currency-select');
-  const key = sel ? sel.value : 'JPY';
-  const cur = CURRENCIES[key] || CURRENCIES.JPY;
+  const key = sel ? sel.value : 'RMB';
+  const cur = CURRENCIES[key] || CURRENCIES.RMB;
   return {
     symbol: cur.symbol,
     name: cur.name,
@@ -524,7 +539,7 @@ function renderBannerInspector(bannerLogs) {
 
   let html = `<div class="banner-inspector-header">`;
   html += `<h3>${tr('result.sampleTrial', 'Sample Trial — Banner Inspector')}</h3>`;
-  html += `<label class="advanced-toggle" data-tip="Shows per-pull details: 6★ Rate (effective rate at that pity), Roll (main RNG roll vs rate), Sub-rolls (50/50 rate-up roll / standard vs limited roll), Pity (hard pity or guarantee override)."><input type="checkbox" class="advanced-toggle-input"> Advanced</label>`;
+  html += `<label class="advanced-toggle" data-tip="Shows per-pull details: 6★ Rate (effective rate at that pity), Roll (main RNG roll vs rate), Sub-rolls (50/50 rate-up roll / standard vs limited roll), Pity (hard pity or guarantee override)."><input type="checkbox" class="advanced-toggle-input"> ${tr('result.advanced', 'Advanced')}</label>`;
   html += `</div>`;
   html += `<div class="banner-inspector">`;
 
@@ -549,13 +564,13 @@ function renderBannerInspector(bannerLogs) {
 
     // Banner summary line
     html += `<div class="banner-summary">`;
-    html += `<span>Banner ${b.serial}</span>`;
+    html += `<span>${tr('result.bannerSingle', 'Banner')} ${b.serial}</span>`;
     html += `<span class="sep">·</span>`;
-    html += `<span>${b.pullCount} paid</span>`;
-    if (b.bonus30PullCount > 0) html += `<span class="sep">·</span><span>${b.bonus30PullCount} bonus30</span>`;
+    html += `<span>${b.pullCount} ${tr('result.paid', 'paid')}</span>`;
+    if (b.bonus30PullCount > 0) html += `<span class="sep">·</span><span>${b.bonus30PullCount} ${tr('result.bonus30', 'bonus30')}</span>`;
     html += `<span class="sep">·</span>`;
-    if (b.gotRateUp) html += `<span class="six-star-rateup">✓ rate-up</span>`;
-    else html += `<span class="dim">no rate-up</span>`;
+    if (b.gotRateUp) html += `<span class="six-star-rateup">✓ ${tr('result.rateUp', 'rate-up')}</span>`;
+    else html += `<span class="dim">${tr('result.noRateUp', 'no rate-up')}</span>`;
     if (sixStars > 0) {
       html += `<span class="sep">·</span><span class="gold">${sixStars}x 6★</span>`;
     }
@@ -566,8 +581,8 @@ function renderBannerInspector(bannerLogs) {
     for (let j = 0; j < b.pulls.length; j++) {
       const p = b.pulls[j];
       const outcomeClass = OUTCOME_CLASSES[p.outcome];
-      const outcomeLabel = OUTCOME_LABELS[p.outcome];
-      const typeLabel = PULL_TYPE_LABELS[p.pullType];
+      const outcomeLabel = trOutcomeLabel(OUTCOME_LABELS[p.outcome]);
+      const typeLabel = trPullTypeLabel(PULL_TYPE_LABELS[p.pullType]);
       const typeClass = PULL_TYPE_CLASSES[p.pullType];
       const isSixStar = p.outcome >= 2;
       const isFiveStar = p.outcome === 1;
@@ -592,8 +607,8 @@ function renderBannerInspector(bannerLogs) {
         if (p.sixStarRoll2 >= 0) subRolls += '/' + p.sixStarRoll2.toFixed(3);
         html += `<span class="pull-subroll adv-stat">${subRolls}</span>`;
       }
-      if (p.pityForced) html += `<span class="pull-pity-forced adv-stat">pity</span>`;
-      if (p.rateUpToken) html += `<span class="pull-token">ðŸŽ« token</span>`;
+      if (p.pityForced) html += `<span class="pull-pity-forced adv-stat">${tr('result.pity', 'pity')}</span>`;
+      if (p.rateUpToken) html += `<span class="pull-token">🎫 ${tr('result.token', 'token')}</span>`;
       html += `</div>`;
     }
     html += `</div>`;
@@ -639,7 +654,7 @@ function renderPullDistChart(counts, color, gradId) {
     if (counts[i] > 0) maxX = i;
     if (counts[i] > maxY) maxY = counts[i];
   }
-  if (maxY === 0) return '<div class="term-chart-empty">No data</div>';
+  if (maxY === 0) return `<div class="term-chart-empty">${tr('result.noData', 'No data')}</div>`;
 
   const W = 380, H = 150;
   const padL = 40, padR = 10, padT = 10, padB = 40;
@@ -718,7 +733,7 @@ function renderPullDistChart(counts, color, gradId) {
     const x = padL + (i / (xMax + 1)) * chartW;
     svg += `<text x="${x}" y="${H - 6}" text-anchor="middle" fill="#8b8fa3" font-size="9" font-family="inherit">${i}</text>`;
   }
-  svg += `<text x="${padL + chartW / 2}" y="${H}" text-anchor="middle" fill="#8b8fa3" font-size="8" font-family="inherit">pull count</text>`;
+  svg += `<text x="${padL + chartW / 2}" y="${H}" text-anchor="middle" fill="#8b8fa3" font-size="8" font-family="inherit">${tr('result.pullCount', 'pull count')}</text>`;
   svg += `</svg>`;
   return `<div class="term-chart">${svg}</div>`;
 }
@@ -727,8 +742,8 @@ function renderPullDistSection(terminationCounts, rateUpCounts) {
   const id = pullChartIdCounter++;
   let html = `<div class="pull-dist-section">`;
   html += `<div class="pull-dist-tabs" data-pull-dist-id="${id}">`;
-  html += `<button class="pull-dist-tab active" data-tab="rateup-${id}" data-tip="Count of times rate-up 6★ was obtained at pull n. All 10 pulls of the 10-pull bonus given at pull 30 are considered to be pull 30.">Rate-Up 6★</button>`;
-  html += `<button class="pull-dist-tab" data-tab="term-${id}" data-tip="Distribution of paid pull count when the strategy returns 'stop' for each banner.">Termination</button>`;
+  html += `<button class="pull-dist-tab active" data-tab="rateup-${id}" data-tip="Count of times rate-up 6★ was obtained at pull n. All 10 pulls of the 10-pull bonus given at pull 30 are considered to be pull 30.">${tr('result.rateUpSix', 'Rate-Up 6★')}</button>`;
+  html += `<button class="pull-dist-tab" data-tab="term-${id}" data-tip="Distribution of paid pull count when the strategy returns 'stop' for each banner.">${tr('result.termination', 'Termination')}</button>`;
   html += `</div>`;
   html += `<div class="pull-dist-panel" data-panel="rateup-${id}">`;
   html += renderPullDistChart(rateUpCounts, '#ffd700', `rateUpGrad${id}`);
@@ -956,21 +971,26 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
 
   html += `<h3>${tr('result.money', 'Money, Money, Money')}</h3>`;
   const mcCostPerPull = monthlyCardProrated / monthlyCardPulls;
+  const pullsWord = tr('result.pullsWord', 'pulls');
+  const perPull = tr('result.perPull', '/pull');
+  const dayUnit = tr('result.days', 'days') === '天' ? '天' : 'd';
+  const pullsAtPerPull = (pulls, cost) => tr('result.pullsAtPerPull', '{pulls} pulls @ {cost}/pull')
+    .replace('{pulls}', pulls)
+    .replace('{cost}', cost);
   html += packRow('Monthly Card',
-    [`${fmtMoney(currency.monthlyCard)}/30d`, `${fmtMoney(monthlyCardProrated)}/${bannerLength}d`, `${monthlyCardPulls.toFixed(1)} pulls @ ${fmtMoney(mcCostPerPull)}/pull`],
+    [`${fmtMoney(currency.monthlyCard)}/30${dayUnit}`, `${fmtMoney(monthlyCardProrated)}/${bannerLength}${dayUnit}`, pullsAtPerPull(monthlyCardPulls.toFixed(1), fmtMoney(mcCostPerPull))],
     `Costs ${fmtMoney(currency.monthlyCard)} for 30 days, giving 200 oroberyl/day. Over a ${bannerLength}-day banner that's ${fmtMoney(monthlyCardProrated)} for ${monthlyCardPulls.toFixed(1)} pulls.`);
   const bundleCostPerPull = currency.bundle / bundlePulls;
   html += packRow('HH Bundle',
-    [`${fmtMoney(currency.bundle)}/banner`, `${bundlePulls} pulls @ ${fmtMoney(bundleCostPerPull)}/pull`],
+    [`${fmtMoney(currency.bundle)}${tr('result.perBanner', '/banner')}`, pullsAtPerPull(bundlePulls, fmtMoney(bundleCostPerPull))],
     `Headhunting Bundle: ${fmtMoney(currency.bundle)} for 10 pull tickets. Limited to one per banner.`);
-  const hardSpendLabel = currency.hardSpendCurrency === 'origeometry'
-    ? `Hard Spend (${currency.hardSpendQty} origeometry)`
-    : `Hard Spend (${currency.hardSpendQty} oroberyl)`;
+  const hardSpendCurrencyLabel = tr(`ui.${currency.hardSpendCurrency}`, currency.hardSpendCurrency);
+  const hardSpendLabel = `${tr('ui.hardSpend', 'Hard Spend')} (${currency.hardSpendQty} ${hardSpendCurrencyLabel})`;
   html += packRow(hardSpendLabel,
-    [`${fmtMoney(currency.hardSpendCost)}`, `${hardSpendPulls.toFixed(1)} pulls`, `${fmtMoney(costPerPull)}/pull`],
+    [`${fmtMoney(currency.hardSpendCost)}`, `${hardSpendPulls.toFixed(1)} ${pullsWord}`, `${fmtMoney(costPerPull)}${perPull}`],
     `Hard spend package: ${fmtMoney(currency.hardSpendCost)} for ${currency.hardSpendQty} ${currency.hardSpendCurrency} (${hardSpendOrbs} oroberyl) at ${ORBS_PER_PULL} oroberyl/pull.`);
   html += `<div class="stat-grid">`;
-  const fmtShortfall = (v) => (v > 0 ? '-' : '+') + Math.abs(v).toFixed(1) + ' pulls';
+  const fmtShortfall = (v) => (v > 0 ? '-' : '+') + Math.abs(v).toFixed(1) + ` ${pullsWord}`;
   const shortfallColor = (v) => v > 0 ? 'red' : 'green';
   const shortfallLabel = shortfall > 0 ? 'Shortfall/banner' : 'Gain/banner';
   const shortfallTip = shortfall > 0
@@ -979,7 +999,7 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
   html += statRow(shortfallLabel, fmtShortfall(shortfall), shortfallColor(shortfall), false, shortfallTip);
   html += `<div></div>`;
   const bundleCostProrated = monthlyCardProrated + currency.bundle;
-  const costLabel = `Cost/${bannerLength} days`;
+  const costLabel = tr('result.costPerDays', 'Cost/{days} days').replace('{days}', bannerLength);
   html += statRow('w/ MC', fmtShortfall(withMonthly), shortfallColor(withMonthly), false,
     'Paid pulls still needed per banner after buying a Monthly Card. Negative means you need to buy more pulls; positive means you have pulls to spare.');
   html += statRow(costLabel, fmtMoney(monthlyCardProrated), '', false,
@@ -1062,7 +1082,7 @@ function hideTooltip() {
 }
 
 function populateSpendingInputs(currencyKey) {
-  const cur = CURRENCIES[currencyKey] || CURRENCIES.JPY;
+  const cur = CURRENCIES[currencyKey] || CURRENCIES.RMB;
   document.getElementById('spending-monthly-card').value = cur.defaults.monthlyCard;
   document.getElementById('spending-bundle').value = cur.defaults.bundle;
   document.getElementById('spending-hard-cost').value = cur.defaults.hardSpendCost;
@@ -1081,8 +1101,8 @@ function resetToDefaults() {
   document.getElementById('start-5star-pity').value = 0;
   document.getElementById('start-6star-pity').value = 0;
   document.getElementById('seed-input').value = '';
-  document.getElementById('currency-select').value = 'JPY';
-  populateSpendingInputs('JPY');
+  document.getElementById('currency-select').value = 'RMB';
+  populateSpendingInputs('RMB');
   document.querySelectorAll('.sim-window').forEach((w) => w.remove());
   windowCounter = 0;
   _suppressHashUpdate = false;
@@ -1203,4 +1223,3 @@ export function destroyPlanner() {
   if (tooltipEl) tooltipEl.remove();
   tooltipEl = null;
 }
-

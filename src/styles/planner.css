@@ -1548,3 +1548,6 @@ input[type="checkbox"] {
   padding: 1px 4px;
   border-radius: 3px;
 }
+#changelog-btn {
+  display: none;
+}
