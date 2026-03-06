@@ -25,6 +25,21 @@ function tr(path, fallback) {
   return value === path ? fallback : value;
 }
 
+function trTpl(path, fallback, params = {}) {
+  let text = tr(path, fallback);
+  Object.entries(params).forEach(([k, v]) => {
+    text = text.replaceAll(`{${k}}`, String(v));
+  });
+  return text;
+}
+
+function tip(key, fallbackOrParams = '', maybeParams = {}) {
+  if (typeof fallbackOrParams === 'object' && fallbackOrParams !== null) {
+    return trTpl(`detailTip.${key}`, '', fallbackOrParams);
+  }
+  return trTpl(`detailTip.${key}`, fallbackOrParams, maybeParams);
+}
+
 function trResultLabel(label) {
   return tr(`resultLabels.${label}`, label);
 }
@@ -240,7 +255,7 @@ async function exportWindowAsJpeg(win) {
     link.click();
   } catch (err) {
     console.error('Export failed:', err);
-    alert('Export failed: ' + err.message);
+    alert(`${t('ui.exportFailed')}: ${err.message}`);
   } finally {
     btn.disabled = false;
     btn.textContent = origText;
@@ -405,7 +420,7 @@ function runSimulation(win) {
     runBtn.textContent = t('ui.runSimulation');
     progressContainer.style.display = 'none';
     resultsContent.classList.remove('hidden');
-    resultsContent.innerHTML = `<div class="error-msg">Worker error: ${escapeHtml(err.message)}</div>`;
+    resultsContent.innerHTML = `<div class="error-msg">${t('ui.workerError')}: ${escapeHtml(err.message)}</div>`;
   };
 
   worker.postMessage({ type: 'run', config, strategyName, customCode });
@@ -458,7 +473,7 @@ function renderDistribution(sorted, n) {
   const minVal = sorted[0];
   const maxVal = sorted[sorted.length - 1];
   if (minVal === maxVal) {
-    return `<div class="dist-single">${minVal} (all trials identical)</div>`;
+    return `<div class="dist-single">${minVal} ${tr('result.allTrialsIdentical', '')}</div>`;
   }
 
   const range = maxVal - minVal;
@@ -539,7 +554,7 @@ function renderBannerInspector(bannerLogs) {
 
   let html = `<div class="banner-inspector-header">`;
   html += `<h3>${tr('result.sampleTrial', 'Sample Trial — Banner Inspector')}</h3>`;
-  html += `<label class="advanced-toggle" data-tip="Shows per-pull details: 6★ Rate (effective rate at that pity), Roll (main RNG roll vs rate), Sub-rolls (50/50 rate-up roll / standard vs limited roll), Pity (hard pity or guarantee override)."><input type="checkbox" class="advanced-toggle-input"> ${tr('result.advanced', 'Advanced')}</label>`;
+  html += `<label class="advanced-toggle" data-tip="${escapeHtml(tip('advancedInspector'))}"><input type="checkbox" class="advanced-toggle-input"> ${tr('result.advanced', 'Advanced')}</label>`;
   html += `</div>`;
   html += `<div class="banner-inspector">`;
 
@@ -742,8 +757,8 @@ function renderPullDistSection(terminationCounts, rateUpCounts) {
   const id = pullChartIdCounter++;
   let html = `<div class="pull-dist-section">`;
   html += `<div class="pull-dist-tabs" data-pull-dist-id="${id}">`;
-  html += `<button class="pull-dist-tab active" data-tab="rateup-${id}" data-tip="Count of times rate-up 6★ was obtained at pull n. All 10 pulls of the 10-pull bonus given at pull 30 are considered to be pull 30.">${tr('result.rateUpSix', 'Rate-Up 6★')}</button>`;
-  html += `<button class="pull-dist-tab" data-tab="term-${id}" data-tip="Distribution of paid pull count when the strategy returns 'stop' for each banner.">${tr('result.termination', 'Termination')}</button>`;
+  html += `<button class="pull-dist-tab active" data-tab="rateup-${id}" data-tip="${escapeHtml(tip('pullDistRateUp'))}">${tr('result.rateUpSix', 'Rate-Up 6★')}</button>`;
+  html += `<button class="pull-dist-tab" data-tab="term-${id}" data-tip="${escapeHtml(tip('pullDistTermination'))}">${tr('result.termination', 'Termination')}</button>`;
   html += `</div>`;
   html += `<div class="pull-dist-panel" data-panel="rateup-${id}">`;
   html += renderPullDistChart(rateUpCounts, '#ffd700', `rateUpGrad${id}`);
@@ -831,44 +846,40 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
   html += `<div class="stat-grid">`;
   html += statRow('Trials', config.numTrials.toLocaleString());
   html += statRow('Max Banners', config.maxBanners.toLocaleString());
-  if (config.startWithCharteredHH) html += statRow('Start with Chartered HH', tr('result.yes', 'Yes'), 'blue', false, 'The 1st banner starts with 10 bonus pity-building pulls from the 60-pull Chartered Headhunting bonus.');
-  if (config.seed != null) html += statRow('Seed', config.seed.toString(), '', false, 'Fixed RNG seed for reproducible results.');
-  if (config.startFiveStarPity > 0) html += statRow('Starting 5★ Pity', config.startFiveStarPity.toString(), '', false, 'Pulls since last 5★ at the start of the 1st banner.');
-  if (config.startSixStarPity > 0) html += statRow('Starting 6★ Pity', config.startSixStarPity.toString(), '', false, 'Pulls since last 6★ at the start of the 1st banner.');
+  if (config.startWithCharteredHH) html += statRow('Start with Chartered HH', tr('result.yes', 'Yes'), 'blue', false, tip('charHHStart'));
+  if (config.seed != null) html += statRow('Seed', config.seed.toString(), '', false, tip('fixedSeed'));
+  if (config.startFiveStarPity > 0) html += statRow('Starting 5★ Pity', config.startFiveStarPity.toString(), '', false, tip('startPity5'));
+  if (config.startSixStarPity > 0) html += statRow('Starting 6★ Pity', config.startSixStarPity.toString(), '', false, tip('startPity6'));
   html += statRow('Banner Length', `${bannerLength} ${tr('result.days', 'days')}`);
-  html += statRow('Welfare Pulls', `${welfarePulls} ${tr('result.perBanner', '/banner')}`, '', false,
-    'Free pulls assumed per banner (from events, maintenance, etc.)');
+  html += statRow('Welfare Pulls', `${welfarePulls} ${tr('result.perBanner', '/banner')}`, '', false, tip('welfareAssumed'));
   html += `</div>`;
 
   // Banners
   const avgBannersSkipped = sumBannersSkipped / n;
-  html += `<h3 class="has-tip" data-tip="Statistics about banner engagement across all trials.">${tr('result.banners', 'Banners')} <span class="tip-icon">?</span></h3>`;
+  html += `<h3 class="has-tip" data-tip="${escapeHtml(tip('bannersHeading'))}">${tr('result.banners', 'Banners')} <span class="tip-icon">?</span></h3>`;
   html += `<div class="stat-grid">`;
-  html += statRow('Banners Skipped', avgBannersSkipped.toFixed(1), '', false,
-    `Banners where the strategy would stop before any pulls are made â€” i.e. the player had no intention of pulling on this banner. Average across ${n} trials.`);
+  html += statRow('Banners Skipped', avgBannersSkipped.toFixed(1), '', false, tip('bannersSkipped', { trials: n }));
   html += `</div>`;
 
   // Paid Pulls â€” hero mean + histogram
-  html += `<h3 class="has-tip" data-tip="Distribution of total paid pulls across all trials. P50 = median (half of simulated players needed fewer). P5 = lucky (only 5% did better). P95 = unlucky (only 5% did worse).">${tr('result.paidPulls', 'Paid Pulls')} <span class="tip-icon">?</span></h3>`;
+  html += `<h3 class="has-tip" data-tip="${escapeHtml(tip('paidHeading'))}">${tr('result.paidPulls', 'Paid Pulls')} <span class="tip-icon">?</span></h3>`;
   const meanPaid = mean(paidPulls);
   const paidPerBanner = meanPaid / (sumBanners / n);
   html += `<div class="paid-pulls-hero">`;
-  html += `<div class="hero-stat has-tip" data-tip="If you followed this strategy for ${config.maxBanners} banners, you'd spend about this many paid pulls in total, on average."><div class="hero-num">${meanPaid.toFixed(0)}</div><div class="hero-label">${tr('result.meanPulls', 'mean pulls')} <span class="tip-icon">?</span></div></div>`;
-  html += `<div class="hero-stat has-tip" data-tip="If you followed this strategy for ${config.maxBanners} banners, you'd spend about this many paid pulls on a typical banner."><div class="hero-num">${paidPerBanner.toFixed(2)}</div><div class="hero-label-row"><div class="hero-label">${tr('result.pullsBannerAll', 'pulls/banner<br>(all)')}</div><span class="tip-icon">?</span></div></div>`;
+  html += `<div class="hero-stat has-tip" data-tip="${escapeHtml(tip('paidMean', { banners: config.maxBanners }))}"><div class="hero-num">${meanPaid.toFixed(0)}</div><div class="hero-label">${tr('result.meanPulls', 'mean pulls')} <span class="tip-icon">?</span></div></div>`;
+  html += `<div class="hero-stat has-tip" data-tip="${escapeHtml(tip('paidPerAll', { banners: config.maxBanners }))}"><div class="hero-num">${paidPerBanner.toFixed(2)}</div><div class="hero-label-row"><div class="hero-label">${tr('result.pullsBannerAll', 'pulls/banner<br>(all)')}</div><span class="tip-icon">?</span></div></div>`;
   const targetBanners = config.maxBanners - avgBannersSkipped;
   const paidPerTarget = targetBanners > 0 ? meanPaid / targetBanners : 0;
-  html += `<div class="hero-stat has-tip" data-tip="Average paid pulls per banner you actually intended to pull on (excluding ${avgBannersSkipped.toFixed(1)} skipped banners)."><div class="hero-num">${paidPerTarget.toFixed(2)}</div><div class="hero-label-row"><div class="hero-label">${tr('result.pullsBannerTarget', 'pulls/banner<br>(target)')}</div><span class="tip-icon">?</span></div></div>`;
+  html += `<div class="hero-stat has-tip" data-tip="${escapeHtml(tip('paidPerTarget', { skipped: avgBannersSkipped.toFixed(1) }))}"><div class="hero-num">${paidPerTarget.toFixed(2)}</div><div class="hero-label-row"><div class="hero-label">${tr('result.pullsBannerTarget', 'pulls/banner<br>(target)')}</div><span class="tip-icon">?</span></div></div>`;
   html += `</div>`;
   html += renderDistribution(paidPulls, n);
 
   // Bonus Pulls
   html += `<h3>${tr('result.bonusPulls', 'Bonus Pulls')}</h3>`;
   html += `<div class="stat-grid">`;
-  html += statRow('Banner Specific', (sumWelfare / n).toFixed(1), '', false, 'Free pulls given at the start of each banner (e.g. sign-in rewards, event handouts). These are regular pulls that obey all pity rules.');
-  html += statRow('30-pull bonus', (sumBonus30 / n).toFixed(1), '', false,
-    'At 30 paid pulls on a banner, the game gives 10 free bonus pulls. These use base rates only \u2014 they don\'t advance or benefit from 6\u2605 pity.');
-  html += statRow('60-pull bonus', (sumBonus60 / n).toFixed(1), '', false,
-    'At 60 paid pulls, you earn 10 bonus pulls used at the start of your next banner. Unlike the 30-pull bonus, these DO advance 6\u2605 pity.');
+  html += statRow('Banner Specific', (sumWelfare / n).toFixed(1), '', false, tip('bonusBannerSpecific'));
+  html += statRow('30-pull bonus', (sumBonus30 / n).toFixed(1), '', false, tip('bonus30'));
+  html += statRow('60-pull bonus', (sumBonus60 / n).toFixed(1), '', false, tip('bonus60'));
   html += `</div>`;
 
   // Total Pulls
@@ -876,10 +887,8 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
   const totalPerBanner = meanTotal / (sumBanners / n);
   html += `<h3>${tr('result.totalPulls', 'Total Pulls')}</h3>`;
   html += `<div class="stat-grid">`;
-  html += statRow('Mean', meanTotal.toFixed(1), '', false,
-    `If you followed this strategy for ${config.maxBanners} banners, your account would make about this many total pulls (paid + welfare + all bonuses).`);
-  html += statRow('Pulls/Banner', totalPerBanner.toFixed(1), '', false,
-    'Total pulls (paid + free + bonus) you\'d make on a typical banner.');
+  html += statRow('Mean', meanTotal.toFixed(1), '', false, tip('totalMean', { banners: config.maxBanners }));
+  html += statRow('Pulls/Banner', totalPerBanner.toFixed(1), '', false, tip('totalPerBanner'));
   html += `</div>`;
 
   // Characters
@@ -892,76 +901,56 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
   const avgSixTotal = avgRateUp + avgLimited + avgStandard;
   html += `<h3>${tr('result.characters', 'Characters')}</h3>`;
   html += `<div class="stat-grid">`;
-  html += statRow('4★', avgFour.toFixed(2), '', false,
-    `If you followed this strategy for ${config.maxBanners} banners, you'd pull about this many 4\u2605 characters in total.`);
-  html += statRow('4★ /banner', (avgFour / avgBanners).toFixed(2), '', false,
-    '4\u2605 characters you\'d get per banner on average.');
-  html += statRow('5★', avgFive.toFixed(2), 'blue', false,
-    `If you followed this strategy for ${config.maxBanners} banners, you'd pull about this many 5\u2605 characters in total.`);
-  html += statRow('5★ /banner', (avgFive / avgBanners).toFixed(2), 'blue', false,
-    '5\u2605 characters you\'d get per banner on average.');
-  html += statRow('6★ standard', avgStandard.toFixed(2), 'purple', false,
-    '6\u2605 characters from the permanent pool. When you hit 6\u2605 and lose the 50/50, there\'s a ~71% chance it\'s a standard character.');
-  html += statRow('6★ standard/banner', (avgStandard / avgBanners).toFixed(2), 'purple', false,
-    '6\u2605 standard characters you\'d get per banner on average.');
-  html += statRow('6★ rate-up', avgRateUp.toFixed(2), 'gold', false,
-    `Copies of the featured banner character you'd get across ${config.maxBanners} banners. This is the character you're pulling for.`);
-  html += statRow('6★ rate-up/banner', (avgRateUp / avgBanners).toFixed(2), 'gold', false,
-    '6\u2605 rate-up characters you\'d get per banner on average.');
-  html += statRow('6★ limited', avgLimited.toFixed(2), 'orange', false,
-    '6\u2605 characters from past limited banners. When you lose the 50/50, there\'s a ~29% chance it\'s an off-banner limited character.');
-  html += statRow('6★ limited/banner', (avgLimited / avgBanners).toFixed(2), 'orange', false,
-    '6\u2605 limited characters you\'d get per banner on average.');
-  html += statRow('6★ total', avgSixTotal.toFixed(2), 'gold', false,
-    `All 6\u2605 combined (rate-up + standard + limited) across ${config.maxBanners} banners.`);
-  html += statRow('6★ total/banner', (avgSixTotal / avgBanners).toFixed(2), 'gold', false,
-    '6\u2605 total characters you\'d get per banner on average.');
+  html += statRow('4★', avgFour.toFixed(2), '', false, tip('fourTotal', { banners: config.maxBanners }));
+  html += statRow('4★ /banner', (avgFour / avgBanners).toFixed(2), '', false, tip('fourPerBanner'));
+  html += statRow('5★', avgFive.toFixed(2), 'blue', false, tip('fiveTotal', { banners: config.maxBanners }));
+  html += statRow('5★ /banner', (avgFive / avgBanners).toFixed(2), 'blue', false, tip('fivePerBanner'));
+  html += statRow('6★ standard', avgStandard.toFixed(2), 'purple', false, tip('sixStandard'));
+  html += statRow('6★ standard/banner', (avgStandard / avgBanners).toFixed(2), 'purple', false, tip('sixStandardPerBanner'));
+  html += statRow('6★ rate-up', avgRateUp.toFixed(2), 'gold', false, tip('sixRateUp', { banners: config.maxBanners }));
+  html += statRow('6★ rate-up/banner', (avgRateUp / avgBanners).toFixed(2), 'gold', false, tip('sixRateUpPerBanner'));
+  html += statRow('6★ limited', avgLimited.toFixed(2), 'orange', false, tip('sixLimited'));
+  html += statRow('6★ limited/banner', (avgLimited / avgBanners).toFixed(2), 'orange', false, tip('sixLimitedPerBanner'));
+  html += statRow('6★ total', avgSixTotal.toFixed(2), 'gold', false, tip('sixTotal', { banners: config.maxBanners }));
+  html += statRow('6★ total/banner', (avgSixTotal / avgBanners).toFixed(2), 'gold', false, tip('sixTotalPerBanner'));
   html += `</div>`;
 
   // Pulls per 6-star
   html += `<h3>${tr('result.pullsPerSix', 'Pulls per 6★')}</h3>`;
   html += `<div class="stat-grid">`;
-  if (sumRateUp > 0) html += statRow('Paid / rate-up', (sumPaid / sumRateUp).toFixed(2), 'gold', false,
-    'On average, you\'d spend this many paid pulls for each copy of the rate-up character.');
-  if (totalSixStar > 0) html += statRow('Paid / any 6★', (sumPaid / totalSixStar).toFixed(2), '', false,
-    'On average, you\'d spend this many paid pulls between any 6\u2605 (rate-up, standard, or limited).');
+  if (sumRateUp > 0) html += statRow('Paid / rate-up', (sumPaid / sumRateUp).toFixed(2), 'gold', false, tip('paidPerRateUp'));
+  if (totalSixStar > 0) html += statRow('Paid / any 6★', (sumPaid / totalSixStar).toFixed(2), '', false, tip('paidPerAnySix'));
   html += `</div>`;
 
   // Arsenal Tickets
   html += `<h3>${tr('result.arsenalTickets', 'Arsenal Tickets')}</h3>`;
   html += `<div class="stat-grid">`;
-  html += statRow('From 4★', Math.round(arsenalFrom4), '', false, 'Each 4★ character → 20 Arsenal Tickets.') + '<div></div>';
-  html += statRow('From 5★', Math.round(arsenalFrom5), '', false, 'Each 5★ character → 200 Arsenal Tickets.') + '<div></div>';
-  html += statRow('From 6★', Math.round(arsenalFrom6), '', false, 'Each 6★ character → 2,000 Arsenal Tickets.') + '<div></div>';
-  html += statRow('Total', Math.round(arsenalTotal), 'green', false,
-    `If you followed this strategy for ${config.maxBanners} banners, you'd earn about this many Arsenal Tickets from character pulls.`);
-  html += statRow('→ Arsenal 10-pull', (arsenalTotal / 1980).toFixed(2), 'green', false,
-    'Total Arsenal Tickets \u00f7 1,980. One 10-pull on the Arsenal banner costs 1,980 tickets.');
+  html += statRow('From 4★', Math.round(arsenalFrom4), '', false, tip('arsenalFrom4')) + '<div></div>';
+  html += statRow('From 5★', Math.round(arsenalFrom5), '', false, tip('arsenalFrom5')) + '<div></div>';
+  html += statRow('From 6★', Math.round(arsenalFrom6), '', false, tip('arsenalFrom6')) + '<div></div>';
+  html += statRow('Total', Math.round(arsenalTotal), 'green', false, tip('arsenalTotal', { banners: config.maxBanners }));
+  html += statRow('→ Arsenal 10-pull', (arsenalTotal / 1980).toFixed(2), 'green', false, tip('arsenalTenPull'));
   html += `<div></div>`;
-  html += statRow('→ Arsenal 10-pull/banner', (arsenalTotal / 1980 / avgBanners).toFixed(2), 'green', false,
-    'Arsenal banner 10-pulls you\'d earn per banner on average.');
+  html += statRow('→ Arsenal 10-pull/banner', (arsenalTotal / 1980 / avgBanners).toFixed(2), 'green', false, tip('arsenalTenPullPerBanner'));
   html += `</div>`;
 
   // Quota Exchange
   html += `<h3>${tr('result.quotaExchange', 'Quota Exchange')}</h3>`;
   html += `<div class="stat-grid">`;
-  html += statRow('Bond Quota', bondQuota.toFixed(0), '', false, 'Each 5★ duplicate → 10 Bond Quota (6★ dupes give 50, but not counted here). Assumes all 5★ at max potential.');
+  html += statRow('Bond Quota', bondQuota.toFixed(0), '', false, tip('bondQuota'));
   html += statRow('→ HH Ticket', refundTickets.toFixed(1));
   html += `<div></div>`;
   html += statRow('→ HH Ticket/banner', (refundTickets / avgBanners).toFixed(2));
   html += `<div></div><div></div>`;
-  html += statRow('AIC Quota from 4★', aicQuotaFrom4.toFixed(0), '', false, 'Each 4★ duplicate at max potential → 5 AIC Quota. Assumes all 4★ are at max potential.');
+  html += statRow('AIC Quota from 4★', aicQuotaFrom4.toFixed(0), '', false, tip('aicFrom4'));
   html += `<div></div>`;
-  html += statRow('AIC Quota from 5★', aicQuotaFrom5.toFixed(0), '', false, 'Each 5★ duplicate at max potential → 20 AIC Quota. Assumes all 5★ are at max potential.');
+  html += statRow('AIC Quota from 5★', aicQuotaFrom5.toFixed(0), '', false, tip('aicFrom5'));
   html += `<div></div>`;
   const bannerHHTickets = aicQuotaTotal / 70;
-  html += statRow('AIC Quota', aicQuotaTotal.toFixed(0), 'blue', false,
-    `Total AIC Quota earned across ${config.maxBanners} banners. Assumes all 4★ and 5★ operators are at max potential.`);
-  html += statRow('→ Banner HH Ticket', bannerHHTickets.toFixed(1), 'blue', false,
-    'AIC Quota Ã· 70. One Banner Headhunting Ticket costs 70 AIC Quota.');
+  html += statRow('AIC Quota', aicQuotaTotal.toFixed(0), 'blue', false, tip('aicTotal', { banners: config.maxBanners }));
+  html += statRow('→ Banner HH Ticket', bannerHHTickets.toFixed(1), 'blue', false, tip('bannerHHTicket'));
   html += `<div></div>`;
-  html += statRow('→ Banner HH Ticket/banner', (bannerHHTickets / avgBanners).toFixed(2), 'blue', false,
-    'Banner HH Ticket earned per banner on average.');
+  html += statRow('→ Banner HH Ticket/banner', (bannerHHTickets / avgBanners).toFixed(2), 'blue', false, tip('bannerHHTicketPerBanner'));
   html += `</div>`;
 
   // Money, Money, Money
@@ -979,39 +968,54 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
     .replace('{cost}', cost);
   html += packRow('Monthly Card',
     [`${fmtMoney(currency.monthlyCard)}/30${dayUnit}`, `${fmtMoney(monthlyCardProrated)}/${bannerLength}${dayUnit}`, pullsAtPerPull(monthlyCardPulls.toFixed(1), fmtMoney(mcCostPerPull))],
-    `Costs ${fmtMoney(currency.monthlyCard)} for 30 days, giving 200 oroberyl/day. Over a ${bannerLength}-day banner that's ${fmtMoney(monthlyCardProrated)} for ${monthlyCardPulls.toFixed(1)} pulls.`);
+    tip(
+      'monthlyCardPack',
+      {
+        cost30: fmtMoney(currency.monthlyCard),
+        days: bannerLength,
+        costDays: fmtMoney(monthlyCardProrated),
+        pulls: monthlyCardPulls.toFixed(1),
+      },
+    ));
   const bundleCostPerPull = currency.bundle / bundlePulls;
   html += packRow('HH Bundle',
     [`${fmtMoney(currency.bundle)}${tr('result.perBanner', '/banner')}`, pullsAtPerPull(bundlePulls, fmtMoney(bundleCostPerPull))],
-    `Headhunting Bundle: ${fmtMoney(currency.bundle)} for 10 pull tickets. Limited to one per banner.`);
+    tip(
+      'hhBundlePack',
+      { cost: fmtMoney(currency.bundle) },
+    ));
   const hardSpendCurrencyLabel = tr(`ui.${currency.hardSpendCurrency}`, currency.hardSpendCurrency);
   const hardSpendLabel = `${tr('ui.hardSpend', 'Hard Spend')} (${currency.hardSpendQty} ${hardSpendCurrencyLabel})`;
   html += packRow(hardSpendLabel,
     [`${fmtMoney(currency.hardSpendCost)}`, `${hardSpendPulls.toFixed(1)} ${pullsWord}`, `${fmtMoney(costPerPull)}${perPull}`],
-    `Hard spend package: ${fmtMoney(currency.hardSpendCost)} for ${currency.hardSpendQty} ${currency.hardSpendCurrency} (${hardSpendOrbs} oroberyl) at ${ORBS_PER_PULL} oroberyl/pull.`);
+    tip(
+      'hardSpendPack',
+      {
+        cost: fmtMoney(currency.hardSpendCost),
+        qty: currency.hardSpendQty,
+        currency: hardSpendCurrencyLabel,
+        oroberyl: hardSpendOrbs,
+        orbsPerPull: ORBS_PER_PULL,
+      },
+    ));
   html += `<div class="stat-grid">`;
   const fmtShortfall = (v) => (v > 0 ? '-' : '+') + Math.abs(v).toFixed(1) + ` ${pullsWord}`;
   const shortfallColor = (v) => v > 0 ? 'red' : 'green';
   const shortfallLabel = shortfall > 0 ? 'Shortfall/banner' : 'Gain/banner';
   const shortfallTip = shortfall > 0
-    ? `Given ${welfarePulls} welfare pulls for free, need to buy this many more pulls per banner to follow this strategy.`
-    : `Given ${welfarePulls} welfare pulls for free, you save ${Math.abs(shortfall).toFixed(1)} pulls per banner with this strategy.`;
+    ? tip('shortfall', { welfare: welfarePulls })
+    : tip('surplus', { welfare: welfarePulls, pulls: Math.abs(shortfall).toFixed(1) });
   html += statRow(shortfallLabel, fmtShortfall(shortfall), shortfallColor(shortfall), false, shortfallTip);
   html += `<div></div>`;
   const bundleCostProrated = monthlyCardProrated + currency.bundle;
   const costLabel = tr('result.costPerDays', 'Cost/{days} days').replace('{days}', bannerLength);
-  html += statRow('w/ MC', fmtShortfall(withMonthly), shortfallColor(withMonthly), false,
-    'Paid pulls still needed per banner after buying a Monthly Card. Negative means you need to buy more pulls; positive means you have pulls to spare.');
-  html += statRow(costLabel, fmtMoney(monthlyCardProrated), '', false,
-    'Real-money cost of this combination of purchases over one banner period.');
-  html += statRow('w/ MC, Bundle', fmtShortfall(withMonthlyBundle), shortfallColor(withMonthlyBundle), false,
-    'Paid pulls still needed per banner after Monthly Card + Headhunting Bundle. Negative means you need to buy more pulls; positive means surplus.');
-  html += statRow(costLabel, fmtMoney(bundleCostProrated), '', false,
-    'Real-money cost of this combination of purchases over one banner period.');
+  html += statRow('w/ MC', fmtShortfall(withMonthly), shortfallColor(withMonthly), false, tip('withMc'));
+  html += statRow(costLabel, fmtMoney(monthlyCardProrated), '', false, tip('costPerPeriod'));
+  html += statRow('w/ MC, Bundle', fmtShortfall(withMonthlyBundle), shortfallColor(withMonthlyBundle), false, tip('withMcBundle'));
+  html += statRow(costLabel, fmtMoney(bundleCostProrated), '', false, tip('costPerPeriod'));
   const hardSpendTotalCost = bundleCostProrated + Math.max(0, withMonthlyBundle) * costPerPull;
   html += statRow('w/ MC, Bundle, Hard Spend', '---', 'green');
-  html += statRow(costLabel, fmtMoney(hardSpendTotalCost), '', false,
-    'Real-money cost of this combination of purchases over one banner period.');
+  html += statRow(costLabel, fmtMoney(hardSpendTotalCost), '', false, tip('costPerPeriod'));
   html += `</div>`;
 
   // Pull Distribution (tabbed: Termination / Rate-Up 6★)
@@ -1037,7 +1041,7 @@ function packRow(label, items, tipText) {
 }
 
 function statRow(label, value, colorClass, span, tipOverride) {
-  const tooltip = tipOverride || TOOLTIPS[label];
+  const tooltip = tipOverride || tr(`detailTipLabel.${label}`, TOOLTIPS[label]);
   const tipAttr = tooltip ? ` data-tip="${escapeHtml(tooltip)}"` : '';
   const tipClass = tooltip ? ' has-tip' : '';
   return `<div class="stat-row${span ? ' span-2' : ''}"${tipAttr}>
