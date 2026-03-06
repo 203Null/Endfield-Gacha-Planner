@@ -169,6 +169,11 @@ header {
   opacity: 0.95;
 }
 
+.actions-card .action-icon {
+  font-size: 12px;
+  opacity: 0.95;
+}
+
 .actions-card #reset-btn {
   background: rgba(21, 27, 42, 0.76);
   border-color: rgba(73, 86, 122, 0.86);
@@ -437,6 +442,18 @@ header h1 {
   display: flex;
   gap: 6px;
   align-items: center;
+}
+
+.language-select {
+  min-width: 90px;
+  height: 30px;
+  padding: 4px 8px;
+  background: rgba(17, 21, 33, 0.8);
+  color: var(--text-soft);
+  border: 1px solid rgba(77, 90, 126, 0.6);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 11px;
 }
 
 #changelog-btn {

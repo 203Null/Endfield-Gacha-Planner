@@ -1,4 +1,5 @@
 ﻿import html2canvas from 'html2canvas';
+import { applyStaticTranslations, initLanguage, setLanguage, t } from '../i18n.js';
 import {
   ORBS_PER_PULL,
   ORIGEOMETRY_TO_OROBERYL,
@@ -18,6 +19,12 @@ let _isInitialized = false;
 let _mouseenterHandler = null;
 let _mouseleaveHandler = null;
 let _keydownHandler = null;
+
+function setShareButtonDefault() {
+  const btn = document.getElementById('share-btn');
+  if (!btn) return;
+  btn.innerHTML = `<span class="share-icon">🔗</span> ${t('ui.share')}`;
+}
 
 function getSelectedCurrency() {
   const sel = document.getElementById('currency-select');
@@ -241,7 +248,8 @@ function createSimWindow(opts = {}) {
   // Strategy description display
   const stratDesc = win.querySelector('.strategy-description');
   function updateStrategyDescription(name) {
-    const desc = getStrategyDescription(name);
+    const localized = t(`strategyDesc.${name}`);
+    const desc = localized.startsWith('strategyDesc.') ? getStrategyDescription(name) : localized;
     stratDesc.textContent = desc;
     stratDesc.style.display = desc ? '' : 'none';
   }
@@ -296,6 +304,7 @@ function createSimWindow(opts = {}) {
   // Run button
   win.querySelector('.run-btn').addEventListener('click', () => runSimulation(win));
 
+  applyStaticTranslations(clone);
   document.getElementById('windows-container').appendChild(clone);
   renumberWindows();
   scheduleHashUpdate();
@@ -335,7 +344,7 @@ function runSimulation(win) {
 
   // UI: disable, show progress
   runBtn.disabled = true;
-  runBtn.textContent = 'Running\u2026';
+  runBtn.textContent = t('ui.running');
   progressContainer.style.display = '';
   progressBar.style.transform = 'scaleX(0)';
   progressText.textContent = '0%';
@@ -353,13 +362,13 @@ function runSimulation(win) {
     } else if (msg.type === 'done') {
       worker.terminate();
       runBtn.disabled = false;
-      runBtn.textContent = '\u25b6 Run Simulation';
+      runBtn.textContent = t('ui.runSimulation');
       progressContainer.style.display = 'none';
       displayResults(win, msg.results, config, msg.sampleBannerLogs, msg.terminationCounts, msg.rateUpCounts);
     } else if (msg.type === 'error') {
       worker.terminate();
       runBtn.disabled = false;
-      runBtn.textContent = '\u25b6 Run Simulation';
+      runBtn.textContent = t('ui.runSimulation');
       progressContainer.style.display = 'none';
       resultsContent.classList.remove('hidden');
       resultsContent.innerHTML = `<div class="error-msg">${escapeHtml(msg.error)}</div>`;
@@ -369,7 +378,7 @@ function runSimulation(win) {
   worker.onerror = (err) => {
     worker.terminate();
     runBtn.disabled = false;
-    runBtn.textContent = '\u25b6 Run Simulation';
+    runBtn.textContent = t('ui.runSimulation');
     progressContainer.style.display = 'none';
     resultsContent.classList.remove('hidden');
     resultsContent.innerHTML = `<div class="error-msg">Worker error: ${escapeHtml(err.message)}</div>`;
@@ -1075,8 +1084,8 @@ function copyShareLink() {
   updateHash();
   const btn = document.getElementById('share-btn');
   navigator.clipboard.writeText(window.location.href).then(() => {
-    btn.textContent = '✓ Copied!';
-    setTimeout(() => { btn.innerHTML = '<span class="share-icon">🔗</span> Share'; }, 2000);
+    btn.textContent = t('ui.copied');
+    setTimeout(() => { setShareButtonDefault(); }, 2000);
   }, () => {
     const input = document.createElement('input');
     input.value = window.location.href;
@@ -1084,8 +1093,8 @@ function copyShareLink() {
     input.select();
     document.execCommand('copy');
     document.body.removeChild(input);
-    btn.textContent = '✓ Copied!';
-    setTimeout(() => { btn.innerHTML = '<span class="share-icon">🔗</span> Share'; }, 2000);
+    btn.textContent = t('ui.copied');
+    setTimeout(() => { setShareButtonDefault(); }, 2000);
   });
 }
 
@@ -1102,6 +1111,11 @@ export function initPlanner() {
   const changelogModal = document.getElementById('changelog-modal');
   const changelogBtn = document.getElementById('changelog-btn');
   const changelogCloseBtn = changelogModal.querySelector('.modal-close');
+  const languageSelect = document.getElementById('language-select');
+
+  const lang = initLanguage();
+  if (languageSelect) languageSelect.value = lang;
+  setShareButtonDefault();
 
   _suppressHashUpdate = true;
   const restored = deserializeState(location.hash);
@@ -1115,6 +1129,24 @@ export function initPlanner() {
   currencySelect.addEventListener('change', () => {
     populateSpendingInputs(currencySelect.value);
   });
+  if (languageSelect) {
+    languageSelect.addEventListener('change', () => {
+      setLanguage(languageSelect.value);
+      setShareButtonDefault();
+      document.querySelectorAll('.sim-window').forEach((win) => {
+        const runButton = win.querySelector('.run-btn');
+        if (runButton && !runButton.disabled) runButton.textContent = t('ui.runSimulation');
+        const placeholder = win.querySelector('.results-placeholder');
+        if (placeholder) placeholder.textContent = t('ui.runPlaceholder');
+        const strategy = win.querySelector('.strategy-select');
+        const desc = win.querySelector('.strategy-description');
+        if (strategy && desc) {
+          const localized = t(`strategyDesc.${strategy.value}`);
+          desc.textContent = localized.startsWith('strategyDesc.') ? getStrategyDescription(strategy.value) : localized;
+        }
+      });
+    });
+  }
   addWindowBtn.addEventListener('click', () => createSimWindow());
 
   header.addEventListener('input', scheduleHashUpdate);
@@ -1162,3 +1194,4 @@ export function destroyPlanner() {
   if (tooltipEl) tooltipEl.remove();
   tooltipEl = null;
 }
+
