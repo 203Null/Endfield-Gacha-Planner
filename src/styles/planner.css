@@ -1139,8 +1139,42 @@ input[type="checkbox"] {
 }
 
 .advanced-toggle input {
-  accent-color: var(--accent);
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  border: 1px solid rgba(74, 86, 118, 0.75);
+  background: rgba(10, 13, 21, 0.9);
+  display: inline-grid;
+  place-content: center;
+  position: relative;
   cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.advanced-toggle input::after {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--accent);
+  transform: scale(0);
+  transition: transform 0.12s ease-out;
+}
+
+.advanced-toggle input:checked {
+  border-color: rgba(108, 140, 255, 0.85);
+  background: rgba(23, 30, 49, 0.95);
+}
+
+.advanced-toggle input:checked::after {
+  transform: scale(1);
+}
+
+.advanced-toggle input:focus-visible {
+  outline: 2px solid rgba(108, 140, 255, 0.65);
+  outline-offset: 1px;
 }
 
 .banner-inspector {

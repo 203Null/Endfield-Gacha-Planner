@@ -150,16 +150,16 @@
         <div class="config-row">
           <label data-i18n="ui.strategy">Strategy</label>
           <select class="strategy-select">
-            <option value="rate-up">Rate-Up 10-pull</option>
-            <option value="rate-up-single">Rate-Up 1-pull</option>
-            <option value="rate-up-plus">Rate-Up+</option>
-            <option value="rate-up-then-60">Rate-Up+60</option>
-            <option value="first-six">First 6★</option>
-            <option value="c6">Max Pot 5/5</option>
-            <option value="skip-alt">Skip Alternate Banners</option>
-            <option value="30">Fixed 30</option>
-            <option value="60">Fixed 60</option>
-            <option value="80">Fixed 80</option>
+            <option value="rate-up" data-i18n="ui.strategyNameRateUp10">Rate-Up 10-pull</option>
+            <option value="rate-up-single" data-i18n="ui.strategyNameRateUp1">Rate-Up 1-pull</option>
+            <option value="rate-up-plus" data-i18n="ui.strategyNameRateUpPlus">Rate-Up+</option>
+            <option value="rate-up-then-60" data-i18n="ui.strategyNameRateUp60">Rate-Up+60</option>
+            <option value="first-six" data-i18n="ui.strategyNameFirst6">First 6★</option>
+            <option value="c6" data-i18n="ui.strategyNameMaxPot">Max Pot 5/5</option>
+            <option value="skip-alt" data-i18n="ui.strategyNameSkipAlt">Skip Alternate Banners</option>
+            <option value="30" data-i18n="ui.strategyNameFixed30">Fixed 30</option>
+            <option value="60" data-i18n="ui.strategyNameFixed60">Fixed 60</option>
+            <option value="80" data-i18n="ui.strategyNameFixed80">Fixed 80</option>
             <option value="custom" data-i18n="ui.customJs">Custom (JavaScript)</option>
           </select>
         </div>
