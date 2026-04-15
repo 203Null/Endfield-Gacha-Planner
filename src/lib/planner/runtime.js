@@ -572,7 +572,7 @@ function formatDistributionDisplayValue(value, formatValue, digits) {
   const formatted = formatValue(value);
   if (Math.abs(value - Math.round(value)) < 1e-9) return formatted;
 
-  const numericMatch = String(formatted).match(/[+-]?\d[\d,]*/);
+  const numericMatch = String(formatted).match(/[+-]?\d[\d,]*(?:\.\d+)?/);
   const precise = value.toFixed(digits ?? (Math.abs(value) >= 100 ? 1 : 2))
     .replace(/\.0+$/, '')
     .replace(/(\.\d*[1-9])0+$/, '$1');
