@@ -92,6 +92,7 @@ function createBannerState(serial) {
     bonus30Available: false,
     bonus60Available: false,
     welfarePullsRemaining: 0,
+    skipProbe: false,
     totalFourStar: 0,
     totalFiveStar: 0,
     totalSixStarRateUp: 0,
@@ -175,10 +176,13 @@ function singlePull(rng, player, banner, pullType, log, rateUpCounts) {
     });
   }
 
-  // Track rate-up 6★ by banner pull number
-  if (rateUpCounts && outcome === SIX_STAR_RATE_UP) {
+  // Track rate-up copies awarded at this banner pull number.
+  if (rateUpCounts) {
     const pullNum = banner.pullCount + (pullType === PULL_BONUS30 ? 0 : 1);
-    if (pullNum <= TERMINATION_CAP) rateUpCounts[pullNum]++;
+    if (pullNum <= TERMINATION_CAP) {
+      if (outcome === SIX_STAR_RATE_UP) rateUpCounts[pullNum]++;
+      if (rateUpToken) rateUpCounts[pullNum]++;
+    }
   }
 
   applyResult(player, banner, outcome, rateUpToken, pullType);
@@ -271,6 +275,23 @@ const STRATEGIES = {
     if (!banner.gotRateUp) return 'pull10';
     return banner.pullCount >= 60 ? 'stop' : 'pull10';
   },
+  'full-collection-optimal': (player, banner) => {
+    if (banner.gotRateUp) {
+      if (banner.pullCount >= 60 || banner.pullCount < 46) return 'stop';
+      return 'pull1';
+    }
+
+    return 'pull1';
+  },
+  'null-select': (player, banner) => {
+    if (banner.gotRateUp) {
+      if (banner.pullCount >= 60) return 'stop';
+      return banner.pullCount >= 51 ? 'pull1' : banner.pullCount >= 46 ? 'pull10' : 'stop';
+    }
+
+    if (player.sixStarPity >= 60 || banner.pullCount > 110) return 'pull1';
+    return 'pull10';
+  },
   'first-six': (player, banner) => {
     return (banner.totalSixStarRateUp + banner.totalSixStarLimited + banner.totalSixStarStandard > 0) ? 'stop' : 'pull10';
   },
@@ -291,8 +312,9 @@ const MAX_DETAILED_BANNERS = 10;
 
 const TERMINATION_CAP = 500;
 
-function runTrial(rng, config, strategyFn, detailed, terminationCounts, rateUpCounts) {
+function runTrial(rng, seed, config, strategyFn, detailed, terminationCounts, rateUpCounts) {
   const player = createPlayerState();
+  player.seed = seed;
   player.sixStarPity = config.startSixStarPity || 0;
   player.fiveStarPity = config.startFiveStarPity || 0;
   let banner = createBannerState(1);
@@ -300,31 +322,57 @@ function runTrial(rng, config, strategyFn, detailed, terminationCounts, rateUpCo
   if (config.startWithCharteredHH) banner.bonus60Available = true;
   let bannersVisited = 0;
   let bannersSkipped = 0;
+  let targetPullCount = 0;
   const bannerLogs = detailed ? [] : null;
   for (let b = 0; b < config.maxBanners; b++) {
     bannersVisited++;
     const logThis = detailed && b < MAX_DETAILED_BANNERS;
     const log = logThis ? [] : null;
 
-    // Pre-check: probe strategy intent on the fresh banner before any pulls
-    if (strategyFn(player, banner) === 'stop') bannersSkipped++;
-
-    // Start-of-banner bonuses
-    if (banner.welfarePullsRemaining > 0) doPulls(rng, player, banner, PULL_WELFARE, banner.welfarePullsRemaining, log, rateUpCounts);
+    banner.skipProbe = true;
+    const probeResult = strategyFn(player, banner);
+    banner.skipProbe = false;
+    const isSkipped = probeResult === 'stop' || probeResult === 'skip-hold-free';
+    const holdFree = probeResult === 'skip-hold-free' || probeResult === 'pull-hold-free';
+    if (isSkipped) bannersSkipped++;
 
     const hadBonus60 = banner.bonus60Available;
-    if (banner.bonus60Available) doPulls(rng, player, banner, PULL_BONUS60, 10, log, rateUpCounts);
+    if (!holdFree) {
+      if (banner.bonus60Available) doPulls(rng, player, banner, PULL_BONUS60, 10, log, rateUpCounts);
+      if (banner.welfarePullsRemaining > 0) doPulls(rng, player, banner, PULL_WELFARE, banner.welfarePullsRemaining, log, rateUpCounts);
+    }
 
-    // Strategy loop
     banner.bonus30Used = false;
-    banner.bonus60Used = hadBonus60;
+    banner.bonus60Used = !holdFree && hadBonus60;
     let safety = 0;
     while (safety++ < 2000) {
       banner.bonus30Used = banner.bonus30PullCount > 0;
       const decision = strategyFn(player, banner);
       if (decision === 'stop') break;
-      if (decision === 'pull1') doPulls(rng, player, banner, PULL_NORMAL, 1, log, rateUpCounts);
-      else doPulls(rng, player, banner, PULL_NORMAL, 10, log, rateUpCounts);
+
+      if (banner.bonus60Available && banner.pullCount === 0 && decision !== 'pullBonus60') {
+        throw new Error('bonus60 is available and must be used before any other pull decision');
+      }
+      if (banner.welfarePullsRemaining > 0 && (decision === 'pull1' || decision === 'pull10')) {
+        throw new Error(`free pulls remaining (${banner.welfarePullsRemaining}); must use pull1Free before pull1/pull10`);
+      }
+
+      if (decision === 'pullBonus60') {
+        if (!banner.bonus60Available || banner.pullCount !== 0) {
+          throw new Error('pullBonus60 can only be used at pull 0 when bonus60 is available');
+        }
+        doPulls(rng, player, banner, PULL_BONUS60, 10, log, rateUpCounts);
+        banner.bonus60Used = true;
+      } else if (decision === 'pull1Free') {
+        if (banner.welfarePullsRemaining <= 0) {
+          throw new Error('pull1Free used but no free pulls remaining');
+        }
+        doPulls(rng, player, banner, PULL_WELFARE, 1, log, rateUpCounts);
+      } else if (decision === 'pull1') {
+        doPulls(rng, player, banner, PULL_NORMAL, 1, log, rateUpCounts);
+      } else {
+        doPulls(rng, player, banner, PULL_NORMAL, 10, log, rateUpCounts);
+      }
 
       if (banner.bonus30Available) doPulls(rng, player, banner, PULL_BONUS30, 10, log, rateUpCounts);
     }
@@ -342,6 +390,10 @@ function runTrial(rng, config, strategyFn, detailed, terminationCounts, rateUpCo
         totalSixStarStandard: banner.totalSixStarStandard,
         pulls: log,
       });
+    }
+
+    if (!isSkipped) {
+      targetPullCount += banner.pullCount;
     }
 
     // Track per-banner termination pull count
@@ -368,6 +420,7 @@ function runTrial(rng, config, strategyFn, detailed, terminationCounts, rateUpCo
     totalSixStarStandard: player.totalSixStarStandard,
     bannersVisited,
     bannersSkipped,
+    targetPullCount,
   };
   if (detailed) result.bannerLogs = bannerLogs;
   return result;
@@ -407,14 +460,15 @@ self.onmessage = function(e) {
   // Track per-pull termination counts (index = cumulative pull count, value = number of trials)
   const terminationCounts = new Uint32Array(TERMINATION_CAP + 1);
   const rateUpCounts = new Uint32Array(TERMINATION_CAP + 1);
+  const baseSeed = config.seed != null ? config.seed : Date.now();
 
   let sampleBannerLogs = null;
   try {
     for (let i = 0; i < numTrials; i++) {
-      const baseSeed = config.seed != null ? config.seed : Date.now();
-      const rng = xoshiro128ss(baseSeed ^ (i * 2654435761 + i));
+      const seed = baseSeed ^ (i * 2654435761 + i);
+      const rng = xoshiro128ss(seed);
       const detailed = (i === 0);
-      results[i] = runTrial(rng, config, strategyFn, detailed, terminationCounts, rateUpCounts);
+      results[i] = runTrial(rng, seed, config, strategyFn, detailed, terminationCounts, rateUpCounts);
 
       if (detailed && results[i].bannerLogs) {
         sampleBannerLogs = results[i].bannerLogs;
@@ -431,5 +485,5 @@ self.onmessage = function(e) {
   }
 
   self.postMessage({ type: 'progress', progress: 1 });
-  self.postMessage({ type: 'done', results, sampleBannerLogs, terminationCounts: Array.from(terminationCounts), rateUpCounts: Array.from(rateUpCounts) });
+  self.postMessage({ type: 'done', results, sampleBannerLogs, baseSeed, terminationCounts: Array.from(terminationCounts), rateUpCounts: Array.from(rateUpCounts) });
 };

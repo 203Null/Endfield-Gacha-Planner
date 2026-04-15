@@ -5,7 +5,6 @@ import {
   ORIGEOMETRY_TO_OROBERYL,
   CURRENCIES,
   STRATEGY_SOURCE,
-  STRATEGY_HEADER,
   OUTCOME_LABELS,
   OUTCOME_CLASSES,
   PULL_TYPE_LABELS,
@@ -19,6 +18,23 @@ let _isInitialized = false;
 let _mouseenterHandler = null;
 let _mouseleaveHandler = null;
 let _keydownHandler = null;
+let _distributionModalEl = null;
+const _metricDistributionStore = new WeakMap();
+const STRATEGY_NAME_KEYS = {
+  'rate-up': 'ui.strategyNameRateUp10',
+  'rate-up-single': 'ui.strategyNameRateUp1',
+  'rate-up-plus': 'ui.strategyNameRateUpPlus',
+  'rate-up-then-60': 'ui.strategyNameRateUp60',
+  'full-collection-optimal': 'ui.strategyNameFullCollectionOptimal',
+  'null-select': 'ui.strategyNameNullSelect',
+  'first-six': 'ui.strategyNameFirst6',
+  'c6': 'ui.strategyNameMaxPot',
+  'skip-alt': 'ui.strategyNameSkipAlt',
+  '30': 'ui.strategyNameFixed30',
+  '60': 'ui.strategyNameFixed60',
+  '80': 'ui.strategyNameFixed80',
+  'bank-120': 'ui.strategyNameBank120',
+};
 
 function tr(path, fallback) {
   const value = t(path);
@@ -59,6 +75,16 @@ function trPullTypeLabel(label) {
   return label;
 }
 
+function parseIntegerOrFallback(value, fallback) {
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseFloatOrFallback(value, fallback) {
+  const parsed = Number.parseFloat(String(value));
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 function setShareButtonDefault() {
   const btn = document.getElementById('share-btn');
   if (!btn) return;
@@ -72,17 +98,72 @@ function getSelectedCurrency() {
   return {
     symbol: cur.symbol,
     name: cur.name,
-    monthlyCard: parseFloat(document.getElementById('spending-monthly-card').value) || cur.defaults.monthlyCard,
-    bundle: parseFloat(document.getElementById('spending-bundle').value) || cur.defaults.bundle,
-    hardSpendCost: parseFloat(document.getElementById('spending-hard-cost').value) || cur.defaults.hardSpendCost,
-    hardSpendQty: parseFloat(document.getElementById('spending-hard-qty').value) || cur.defaults.hardSpendQty,
+    monthlyCard: parseFloatOrFallback(document.getElementById('spending-monthly-card').value, cur.defaults.monthlyCard),
+    bundle: parseFloatOrFallback(document.getElementById('spending-bundle').value, cur.defaults.bundle),
+    hardSpendCost: parseFloatOrFallback(document.getElementById('spending-hard-cost').value, cur.defaults.hardSpendCost),
+    hardSpendQty: parseFloatOrFallback(document.getElementById('spending-hard-qty').value, cur.defaults.hardSpendQty),
     hardSpendCurrency: document.getElementById('spending-hard-currency').value || cur.defaults.hardSpendCurrency,
   };
 }
 
+function getStrategyHeader() {
+  return `// ${tr('ui.strategyHeaderHelp', 'See Help button on the top right for full reference')}\n\n`;
+}
+
+function getStrategyDisplayName(name) {
+  return tr(STRATEGY_NAME_KEYS[name], name);
+}
+
+function extractStrategyBody(code) {
+  if (typeof code !== 'string') return '';
+  const lines = code.split('\n');
+  let index = 0;
+
+  while (index < lines.length) {
+    const trimmed = lines[index].trim();
+    if (trimmed === '') {
+      index++;
+      continue;
+    }
+    if (!trimmed.startsWith('//')) break;
+    index++;
+    if (trimmed.startsWith('// Description:')) break;
+  }
+
+  while (index < lines.length && lines[index].trim() === '') index++;
+  return lines.slice(index).join('\n');
+}
+
+function getStrategyDescription(name) {
+  const localized = t(`strategyDesc.${name}`);
+  if (!localized.startsWith('strategyDesc.')) return localized;
+
+  const src = STRATEGY_SOURCE[name];
+  if (!src) return '';
+  const match = src.match(/^\/\/ Description:\s*(.+)$/m);
+  return match ? match[1].trim() : '';
+}
+
 function getStrategyCode(name) {
   if (name === 'custom') return null;
-  return STRATEGY_HEADER + (STRATEGY_SOURCE[name] || '');
+  const description = getStrategyDescription(name);
+  const body = extractStrategyBody(STRATEGY_SOURCE[name] || '');
+  const nameLine = `// ${tr('ui.strategyHeaderName', 'Name')}: ${getStrategyDisplayName(name)}\n`;
+  const descriptionLine = description ? `// ${tr('ui.strategyHeaderDescription', 'Description')}: ${description}\n` : '';
+  return getStrategyHeader() + nameLine + descriptionLine + body;
+}
+
+function applyBuiltInStrategyCode(textarea, name) {
+  const code = getStrategyCode(name) || '';
+  textarea.value = code;
+  textarea.dataset.generatedStrategyName = name;
+  textarea.dataset.generatedStrategyCode = code;
+}
+
+function isDefaultBuiltInStrategyCode(name, textarea) {
+  return textarea?.dataset.generatedStrategyName === name
+    && textarea.dataset.generatedStrategyCode != null
+    && textarea.value === textarea.dataset.generatedStrategyCode;
 }
 
 // --- Base64url encoding for custom strategy code in URLs ---
@@ -206,13 +287,6 @@ function scheduleHashUpdate() {
   _hashUpdateTimer = setTimeout(updateHash, 300);
 }
 
-function getStrategyDescription(name) {
-  const src = STRATEGY_SOURCE[name];
-  if (!src) return '';
-  const match = src.match(/^\/\/ Description:\s*(.+)$/m);
-  return match ? match[1].trim() : '';
-}
-
 async function exportWindowAsJpeg(win) {
   const btn = win.querySelector('.window-export');
   const origText = btn.textContent;
@@ -300,10 +374,10 @@ function createSimWindow(opts = {}) {
       textarea.value = opts.code || '';
       editorContainer.classList.remove('collapsed');
     } else {
-      textarea.value = getStrategyCode(opts.strategy) || '';
+      applyBuiltInStrategyCode(textarea, opts.strategy);
     }
   } else {
-    textarea.value = getStrategyCode(stratSelect.value);
+    applyBuiltInStrategyCode(textarea, stratSelect.value);
   }
   updateStrategyDescription(stratSelect.value);
 
@@ -321,7 +395,7 @@ function createSimWindow(opts = {}) {
       editorContainer.classList.remove('collapsed');
     } else {
       // Reset to built-in source, collapse
-      textarea.value = getStrategyCode(name);
+      applyBuiltInStrategyCode(textarea, name);
       editorContainer.classList.add('collapsed');
     }
   });
@@ -342,6 +416,21 @@ function createSimWindow(opts = {}) {
 
   // Run button
   win.querySelector('.run-btn').addEventListener('click', () => runSimulation(win));
+
+  win.querySelector('.results-panel').addEventListener('click', (event) => {
+    const trigger = event.target.closest('.stat-value[data-dist-key]');
+    if (!trigger) return;
+    const metric = _metricDistributionStore.get(win)?.get(trigger.dataset.distKey);
+    openDistributionModal(metric, trigger.closest('.stat-row')?.dataset.tip || '');
+  });
+  win.querySelector('.results-panel').addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const trigger = event.target.closest('.stat-value[data-dist-key]');
+    if (!trigger) return;
+    event.preventDefault();
+    const metric = _metricDistributionStore.get(win)?.get(trigger.dataset.distKey);
+    openDistributionModal(metric, trigger.closest('.stat-row')?.dataset.tip || '');
+  });
 
   applyStaticTranslations(clone);
   document.getElementById('windows-container').appendChild(clone);
@@ -366,18 +455,19 @@ function runSimulation(win) {
   const progressText = win.querySelector('.progress-text');
   const resultsPlaceholder = win.querySelector('.results-placeholder');
   const resultsContent = win.querySelector('.results-content');
+  const seedInput = document.getElementById('seed-input');
 
   const config = {
-    numTrials: Math.min(100000, Math.max(100, parseInt(trialsInput.value) || 5000)),
-    maxBanners: Math.min(10000, Math.max(1, parseInt(bannersInput.value) || 100)),
-    welfareFree: Math.min(120, Math.max(0, parseInt(document.getElementById('welfare-free-pulls').value) || 5)),
+    numTrials: Math.min(100000, Math.max(100, parseIntegerOrFallback(trialsInput.value, 5000))),
+    maxBanners: Math.min(10000, Math.max(1, parseIntegerOrFallback(bannersInput.value, 100))),
+    welfareFree: Math.min(120, Math.max(0, parseIntegerOrFallback(document.getElementById('welfare-free-pulls').value, 10))),
     startWithCharteredHH: document.getElementById('start-chartered-hh').checked,
-    seed: document.getElementById('seed-input').value.trim() !== '' ? parseInt(document.getElementById('seed-input').value) : null,
-    startFiveStarPity: Math.min(9, Math.max(0, parseInt(document.getElementById('start-5star-pity').value) || 0)),
-    startSixStarPity: Math.min(79, Math.max(0, parseInt(document.getElementById('start-6star-pity').value) || 0)),
+    seed: seedInput.value.trim() !== '' ? parseIntegerOrFallback(seedInput.value, null) : null,
+    startFiveStarPity: Math.min(9, Math.max(0, parseIntegerOrFallback(document.getElementById('start-5star-pity').value, 0))),
+    startSixStarPity: Math.min(79, Math.max(0, parseIntegerOrFallback(document.getElementById('start-6star-pity').value, 0))),
   };
 
-  // Always send the editor code â€” for built-ins it's the source, for custom it's the user code
+  // Always send the editor code; for built-ins it's the source, for custom it's the user code.
   const strategyName = 'custom';
   const customCode = editor.value;
 
@@ -403,6 +493,7 @@ function runSimulation(win) {
       runBtn.disabled = false;
       runBtn.textContent = t('ui.runSimulation');
       progressContainer.style.display = 'none';
+      config.baseSeed = msg.baseSeed;
       displayResults(win, msg.results, config, msg.sampleBannerLogs, msg.terminationCounts, msg.rateUpCounts);
     } else if (msg.type === 'error') {
       worker.terminate();
@@ -435,8 +526,10 @@ function escapeHtml(s) {
 // --- Statistics ---
 function percentile(sorted, p) {
   if (sorted.length === 0) return 0;
-  const idx = Math.round(p / 100 * (sorted.length - 1));
-  return sorted[idx];
+  if (p <= 0) return sorted[0];
+  if (p >= 100) return sorted[sorted.length - 1];
+  const rank = Math.ceil((p / 100) * sorted.length);
+  return sorted[rank - 1];
 }
 
 function mean(arr) {
@@ -468,12 +561,38 @@ function buildHistogram(sorted, buckets) {
   }));
 }
 
-function renderDistribution(sorted, n) {
+function defaultDistributionFormatter(value) {
+  if (!Number.isFinite(value)) return '—';
+  if (Math.abs(value - Math.round(value)) < 1e-9) return Math.round(value).toLocaleString();
+  return value.toFixed(Math.abs(value) >= 100 ? 1 : 2).replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1');
+}
+
+function formatDistributionDisplayValue(value, formatValue, digits) {
+  if (!Number.isFinite(value)) return '—';
+  const formatted = formatValue(value);
+  if (Math.abs(value - Math.round(value)) < 1e-9) return formatted;
+
+  const numericMatch = String(formatted).match(/[+-]?\d[\d,]*/);
+  const precise = value.toFixed(digits ?? (Math.abs(value) >= 100 ? 1 : 2))
+    .replace(/\.0+$/, '')
+    .replace(/(\.\d*[1-9])0+$/, '$1');
+
+  if (!numericMatch) return precise;
+  if (numericMatch[0].includes('.')) return formatted;
+  return String(formatted).replace(numericMatch[0], precise);
+}
+
+function renderDistribution(sorted, n, options = {}) {
+  const formatValue = options.formatValue || defaultDistributionFormatter;
+  const showPercentiles = options.showPercentiles ?? true;
+  if (!sorted || sorted.length === 0) {
+    return `<div class="dist-single">${tr('result.noData', 'No data')}</div>`;
+  }
   const buckets = 30;
   const minVal = sorted[0];
   const maxVal = sorted[sorted.length - 1];
   if (minVal === maxVal) {
-    return `<div class="dist-single">${minVal} ${tr('result.allTrialsIdentical', '')}</div>`;
+    return `<div class="dist-single">${formatValue(minVal)} ${tr('result.allTrialsIdentical', '')}</div>`;
   }
 
   const range = maxVal - minVal;
@@ -486,14 +605,15 @@ function renderDistribution(sorted, n) {
   }
   const maxCount = Math.max(...counts);
 
-  // Percentiles to mark
-  const pMarkers = [
-    { p: 5, label: 'P5', color: '#4caf50' },
-    { p: 25, label: 'P25', color: '#8aa4ff' },
-    { p: 50, label: 'P50', color: '#fff' },
-    { p: 75, label: 'P75', color: '#8aa4ff' },
-    { p: 95, label: 'P95', color: '#ff9800' },
-  ];
+  const pMarkers = showPercentiles
+    ? [
+      { p: 5, label: 'P5', color: '#4caf50' },
+      { p: 25, label: 'P25', color: '#8aa4ff' },
+      { p: 50, label: 'P50', color: '#fff' },
+      { p: 75, label: 'P75', color: '#8aa4ff' },
+      { p: 95, label: 'P95', color: '#ff9800' },
+    ]
+    : [];
   const pVals = pMarkers.map(m => ({ ...m, val: percentile(sorted, m.p) }));
 
   // SVG dimensions
@@ -525,20 +645,104 @@ function renderDistribution(sorted, n) {
     svg += `<line x1="${xPos}" y1="${padT}" x2="${xPos}" y2="${padT + chartH + 4}" stroke="${pm.color}" stroke-width="1" stroke-opacity="0.7" stroke-dasharray="${pm.p === 50 ? 'none' : '2,2'}"/>`;
     // Label below
     svg += `<text x="${xPos}" y="${padT + chartH + 16}" text-anchor="middle" fill="${pm.color}" font-size="9" font-family="inherit" opacity="0.9">${pm.label}</text>`;
-    svg += `<text x="${xPos}" y="${padT + chartH + 27}" text-anchor="middle" fill="${pm.color}" font-size="9" font-family="inherit" font-weight="600">${pm.val}</text>`;
+    svg += `<text x="${xPos}" y="${padT + chartH + 27}" text-anchor="middle" fill="${pm.color}" font-size="9" font-family="inherit" font-weight="600">${formatDistributionDisplayValue(pm.val, formatValue)}</text>`;
   }
 
   // Min/max labels at top corners
-  svg += `<text x="${padL}" y="${padT - 6}" fill="#8b8fa3" font-size="9" font-family="inherit">${minVal}</text>`;
-  svg += `<text x="${W - padR}" y="${padT - 6}" text-anchor="end" fill="#8b8fa3" font-size="9" font-family="inherit">${maxVal}</text>`;
+  svg += `<text x="${padL}" y="${padT - 6}" fill="#8b8fa3" font-size="9" font-family="inherit">${formatDistributionDisplayValue(minVal, formatValue)}</text>`;
+  svg += `<text x="${W - padR}" y="${padT - 6}" text-anchor="end" fill="#8b8fa3" font-size="9" font-family="inherit">${formatDistributionDisplayValue(maxVal, formatValue)}</text>`;
 
   svg += `</svg>`;
   return `<div class="dist-chart">${svg}</div>`;
 }
 
+function createDistributionMetric(title, getValues, formatValue) {
+  return { title, getValues, formatValue };
+}
+
+function formatDistributionSummaryValue(value, formatValue, digits = 2) {
+  return formatDistributionDisplayValue(value, formatValue, digits);
+}
+
+function renderDistributionSummary(sorted, formatValue) {
+  const avg = mean(sorted);
+  const median = percentile(sorted, 50);
+  const variance = sorted.reduce((sum, value) => {
+    const delta = value - avg;
+    return sum + delta * delta;
+  }, 0) / sorted.length;
+  const stdDev = Math.sqrt(variance);
+  const stats = [
+    [tr('result.distMean', 'Mean'), formatDistributionSummaryValue(avg, formatValue)],
+    [tr('result.distStdDev', 'Std Dev'), formatDistributionSummaryValue(stdDev, formatValue)],
+    [tr('result.distMedian', 'Median'), formatDistributionSummaryValue(median, formatValue)],
+    [tr('result.distMin', 'Min'), formatDistributionDisplayValue(sorted[0], formatValue)],
+    [tr('result.distMax', 'Max'), formatDistributionDisplayValue(sorted[sorted.length - 1], formatValue)],
+  ];
+  return `<div class="distribution-summary-grid">${stats.map(([label, value]) => `
+    <div class="distribution-summary-item">
+      <span class="distribution-summary-label">${label}</span>
+      <span class="distribution-summary-value">${value}</span>
+    </div>
+  `).join('')}</div>`;
+}
+
+function ensureDistributionModal() {
+  if (_distributionModalEl) return _distributionModalEl;
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay distribution-modal hidden';
+  modal.innerHTML = `
+    <div class="modal-content distribution-modal-content">
+      <div class="modal-header">
+        <div class="distribution-modal-heading">
+          <h2></h2>
+          <p class="distribution-modal-note hidden"></p>
+        </div>
+        <button class="modal-close" title="${escapeHtml(t('ui.close'))}">×</button>
+      </div>
+      <div class="modal-body distribution-modal-body">
+        <div class="distribution-modal-chart"></div>
+        <div class="distribution-modal-summary"></div>
+      </div>
+    </div>
+  `;
+  modal.querySelector('.modal-close').addEventListener('click', () => {
+    modal.classList.add('hidden');
+  });
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal) modal.classList.add('hidden');
+  });
+  document.body.appendChild(modal);
+  _distributionModalEl = modal;
+  return modal;
+}
+
+function openDistributionModal(metric, description = '') {
+  if (!metric) return;
+  const values = (typeof metric.getValues === 'function' ? metric.getValues() : metric.values || [])
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => a - b);
+  if (!values.length) return;
+  const formatValue = metric.formatValue || defaultDistributionFormatter;
+
+  hideTooltip();
+  const modal = ensureDistributionModal();
+  modal.querySelector('.modal-header h2').textContent = metric.title;
+  modal.querySelector('.modal-close').setAttribute('title', t('ui.close'));
+  const noteEl = modal.querySelector('.distribution-modal-note');
+  noteEl.textContent = description;
+  noteEl.classList.toggle('hidden', !description);
+  modal.querySelector('.distribution-modal-summary').innerHTML = renderDistributionSummary(values, formatValue);
+  modal.querySelector('.distribution-modal-chart').innerHTML = renderDistribution(values, values.length, {
+    formatValue,
+    showPercentiles: true,
+  });
+  modal.classList.remove('hidden');
+}
+
 function formatSixStarRate(rate) {
   if (rate >= 1.0) return '100%';
-  if (rate === 0) return 'â€”';
+  if (rate === 0) return '—';
   return (rate * 100).toFixed(1) + '%';
 }
 
@@ -554,7 +758,7 @@ function renderBannerInspector(bannerLogs) {
 
   let html = `<div class="banner-inspector-header">`;
   html += `<h3>${tr('result.sampleTrial', 'Sample Trial — Banner Inspector')}</h3>`;
-  html += `<label class="advanced-toggle" data-tip="${escapeHtml(tip('advancedInspector'))}"><input type="checkbox" class="advanced-toggle-input"> ${tr('result.advanced', 'Advanced')}</label>`;
+  html += `<label class="advanced-toggle has-tip" data-tip="${escapeHtml(tip('advancedInspector'))}"><input type="checkbox" class="advanced-toggle-input"> ${tr('result.advanced', 'Advanced')} <span class="tip-icon">?</span></label>`;
   html += `</div>`;
   html += `<div class="banner-inspector">`;
 
@@ -611,12 +815,12 @@ function renderBannerInspector(bannerLogs) {
         html += `<span class="pull-pity">6★p:${p.sixStarPity}</span>`;
         html += `<span class="pull-pity">5★p:${p.fiveStarPity}</span>`;
       } else {
-        html += `<span class="pull-pity dim">â€”</span>`;
-        html += `<span class="pull-pity dim">â€”</span>`;
+        html += `<span class="pull-pity dim">—</span>`;
+        html += `<span class="pull-pity dim">—</span>`;
       }
       html += `<span class="pull-rate adv-stat ${sixStarRateClass(p.sixStarRate)}">${formatSixStarRate(p.sixStarRate)}</span>`;
       if (p.mainRoll >= 0) html += `<span class="pull-roll adv-stat">${p.mainRoll.toFixed(3)}</span>`;
-      else html += `<span class="pull-roll adv-stat dim">â€”</span>`;
+      else html += `<span class="pull-roll adv-stat dim">—</span>`;
       if (p.sixStarRoll1 >= 0) {
         let subRolls = p.sixStarRoll1.toFixed(3);
         if (p.sixStarRoll2 >= 0) subRolls += '/' + p.sixStarRoll2.toFixed(3);
@@ -757,8 +961,8 @@ function renderPullDistSection(terminationCounts, rateUpCounts) {
   const id = pullChartIdCounter++;
   let html = `<div class="pull-dist-section">`;
   html += `<div class="pull-dist-tabs" data-pull-dist-id="${id}">`;
-  html += `<button class="pull-dist-tab active" data-tab="rateup-${id}" data-tip="${escapeHtml(tip('pullDistRateUp'))}">${tr('result.rateUpSix', 'Rate-Up 6★')}</button>`;
-  html += `<button class="pull-dist-tab" data-tab="term-${id}" data-tip="${escapeHtml(tip('pullDistTermination'))}">${tr('result.termination', 'Termination')}</button>`;
+  html += `<button class="pull-dist-tab has-tip active" data-tab="rateup-${id}" data-tip="${escapeHtml(tip('pullDistRateUp'))}">${tr('result.rateUpSix', 'Rate-Up 6★')} <span class="tip-icon">?</span></button>`;
+  html += `<button class="pull-dist-tab has-tip" data-tab="term-${id}" data-tip="${escapeHtml(tip('pullDistTermination'))}">${tr('result.termination', 'Termination')} <span class="tip-icon">?</span></button>`;
   html += `</div>`;
   html += `<div class="pull-dist-panel" data-panel="rateup-${id}">`;
   html += renderPullDistChart(rateUpCounts, '#ffd700', `rateUpGrad${id}`);
@@ -789,26 +993,35 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
   resultsContent.classList.remove('hidden');
 
   const n = results.length;
-  const paidPulls = results.map(r => r.pullCount).sort((a, b) => a - b);
-  const totalPulls = results.map(r =>
-    r.pullCount + r.bonus30PullCount + r.bonus60PullCount + r.welfarePullCount
-  ).sort((a, b) => a - b);
+  const paidPulls = results.map((result) => result.pullCount).sort((a, b) => a - b);
+  const totalPulls = results.map((result) => (
+    result.pullCount + result.bonus30PullCount + result.bonus60PullCount + result.welfarePullCount
+  )).sort((a, b) => a - b);
 
-  let sumPaid = 0, sumBonus30 = 0, sumBonus60 = 0, sumWelfare = 0;
-  let sumFour = 0, sumFive = 0, sumRateUp = 0, sumLimited = 0, sumStandard = 0, sumBanners = 0, sumBannersSkipped = 0;
+  let sumPaid = 0;
+  let sumBonus30 = 0;
+  let sumBonus60 = 0;
+  let sumWelfare = 0;
+  let sumFour = 0;
+  let sumFive = 0;
+  let sumRateUp = 0;
+  let sumLimited = 0;
+  let sumStandard = 0;
+  let sumBanners = 0;
+  let sumBannersSkipped = 0;
 
-  for (const r of results) {
-    sumPaid += r.pullCount;
-    sumBonus30 += r.bonus30PullCount;
-    sumBonus60 += r.bonus60PullCount;
-    sumWelfare += r.welfarePullCount;
-    sumFour += r.totalFourStar;
-    sumFive += r.totalFiveStar;
-    sumRateUp += r.totalSixStarRateUp;
-    sumLimited += r.totalSixStarLimited;
-    sumStandard += r.totalSixStarStandard;
-    sumBanners += r.bannersVisited;
-    sumBannersSkipped += r.bannersSkipped;
+  for (const result of results) {
+    sumPaid += result.pullCount;
+    sumBonus30 += result.bonus30PullCount;
+    sumBonus60 += result.bonus60PullCount;
+    sumWelfare += result.welfarePullCount;
+    sumFour += result.totalFourStar;
+    sumFive += result.totalFiveStar;
+    sumRateUp += result.totalSixStarRateUp;
+    sumLimited += result.totalSixStarLimited;
+    sumStandard += result.totalSixStarStandard;
+    sumBanners += result.bannersVisited;
+    sumBannersSkipped += result.bannersSkipped;
   }
 
   const totalSixStar = sumRateUp + sumLimited + sumStandard;
@@ -824,14 +1037,15 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
 
   let html = '';
 
-  // Base Parameters
-  const bannerLength = parseInt(document.getElementById('banner-length').value) || 17;
-  const welfarePulls = parseInt(document.getElementById('welfare-pulls').value) || 40;
+  const bannerLength = parseIntegerOrFallback(document.getElementById('banner-length').value, 17);
+  const welfarePulls = parseIntegerOrFallback(document.getElementById('welfare-pulls').value, 40);
   const currency = getSelectedCurrency();
-  const fmtMoney = (v) => {
-    if (Number.isInteger(v) || v >= 100) return `${currency.symbol}${Math.round(v)}`;
-    return `${currency.symbol}${v.toFixed(2)}`;
+  const fmtMoney = (value) => {
+    if (Number.isInteger(value) || value >= 100) return `${currency.symbol}${Math.round(value)}`;
+    return `${currency.symbol}${value.toFixed(2)}`;
   };
+  const formatFixed = (digits = 2) => (value) => value.toFixed(digits).replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1');
+  const formatInteger = (value) => Math.round(value).toLocaleString();
 
   const monthlyCardPulls = bannerLength * 200 / ORBS_PER_PULL;
   const monthlyCardProrated = currency.monthlyCard * bannerLength / 30;
@@ -841,27 +1055,59 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
     : currency.hardSpendQty;
   const hardSpendPulls = hardSpendOrbs / ORBS_PER_PULL;
   const costPerPull = currency.hardSpendCost / hardSpendPulls;
+  const bundleCostProrated = monthlyCardProrated + currency.bundle;
+
+  const safeBannerCount = (result) => Math.max(1, result.bannersVisited || 0);
+  const sixTotalFor = (result) => result.totalSixStarRateUp + result.totalSixStarLimited + result.totalSixStarStandard;
+  const perBannerPaidFor = (result) => result.pullCount / safeBannerCount(result);
+  const totalPullCountFor = (result) => result.pullCount + result.bonus30PullCount + result.bonus60PullCount + result.welfarePullCount;
+  const arsenalFrom4For = (result) => result.totalFourStar * 20;
+  const arsenalFrom5For = (result) => result.totalFiveStar * 200;
+  const arsenalFrom6For = (result) => sixTotalFor(result) * 2000;
+  const arsenalTotalFor = (result) => arsenalFrom4For(result) + arsenalFrom5For(result) + arsenalFrom6For(result);
+  const bondQuotaFor = (result) => result.totalFiveStar * 10;
+  const hhTicketFor = (result) => bondQuotaFor(result) / 25;
+  const aicFrom4For = (result) => result.totalFourStar * 5;
+  const aicFrom5For = (result) => result.totalFiveStar * 20;
+  const aicTotalFor = (result) => aicFrom4For(result) + aicFrom5For(result);
+  const shortfallDisplayFor = (result) => welfarePulls - perBannerPaidFor(result);
+  const withMonthlyDisplayFor = (result) => shortfallDisplayFor(result) + monthlyCardPulls;
+  const withMonthlyBundleDisplayFor = (result) => withMonthlyDisplayFor(result) + bundlePulls;
+  const hardSpendTotalCostFor = (result) => bundleCostProrated + Math.max(0, -withMonthlyBundleDisplayFor(result)) * costPerPull;
+
+  const titleOf = (sectionTitle, label) => `${sectionTitle} - ${label}`;
+  const bonusTitle = tr('result.bonusPulls', 'Bonus Pulls');
+  const totalTitle = tr('result.totalPulls', 'Total Pulls');
+  const charactersTitle = tr('result.characters', 'Characters');
+  const pullsPerSixTitle = tr('result.pullsPerSix', 'Pulls per 6★');
+  const arsenalTitle = tr('result.arsenalTickets', 'Arsenal Tickets');
+  const quotaTitle = tr('result.quotaExchange', 'Quota Exchange');
+  const moneyTitle = tr('result.money', 'Money, Money, Money');
+  const metricMap = new Map();
+  const addMetric = (key, title, getValues, formatValue) => {
+    metricMap.set(key, createDistributionMetric(title, getValues, formatValue));
+    return key;
+  };
 
   html += `<h3>${tr('result.parameters', 'Parameters')}</h3>`;
   html += `<div class="stat-grid">`;
   html += statRow('Trials', config.numTrials.toLocaleString());
   html += statRow('Max Banners', config.maxBanners.toLocaleString());
   if (config.startWithCharteredHH) html += statRow('Start with Chartered HH', tr('result.yes', 'Yes'), 'blue', false, tip('charHHStart'));
-  if (config.seed != null) html += statRow('Seed', config.seed.toString(), '', false, tip('fixedSeed'));
+  const shownSeed = config.baseSeed ?? config.seed;
+  if (shownSeed != null) html += statRow('Seed', shownSeed.toString(), '', false, tip('fixedSeed'));
   if (config.startFiveStarPity > 0) html += statRow('Starting 5★ Pity', config.startFiveStarPity.toString(), '', false, tip('startPity5'));
   if (config.startSixStarPity > 0) html += statRow('Starting 6★ Pity', config.startSixStarPity.toString(), '', false, tip('startPity6'));
   html += statRow('Banner Length', `${bannerLength} ${tr('result.days', 'days')}`);
   html += statRow('Welfare Pulls', `${welfarePulls} ${tr('result.perBanner', '/banner')}`, '', false, tip('welfareAssumed'));
   html += `</div>`;
 
-  // Banners
   const avgBannersSkipped = sumBannersSkipped / n;
   html += `<h3 class="has-tip" data-tip="${escapeHtml(tip('bannersHeading'))}">${tr('result.banners', 'Banners')} <span class="tip-icon">?</span></h3>`;
   html += `<div class="stat-grid">`;
   html += statRow('Banners Skipped', avgBannersSkipped.toFixed(1), '', false, tip('bannersSkipped', { trials: n }));
   html += `</div>`;
 
-  // Paid Pulls â€” hero mean + histogram
   html += `<h3 class="has-tip" data-tip="${escapeHtml(tip('paidHeading'))}">${tr('result.paidPulls', 'Paid Pulls')} <span class="tip-icon">?</span></h3>`;
   const meanPaid = mean(paidPulls);
   const paidPerBanner = meanPaid / (sumBanners / n);
@@ -874,24 +1120,21 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
   html += `</div>`;
   html += renderDistribution(paidPulls, n);
 
-  // Bonus Pulls
-  html += `<h3>${tr('result.bonusPulls', 'Bonus Pulls')}</h3>`;
+  html += `<h3>${bonusTitle}</h3>`;
   html += `<div class="stat-grid">`;
-  html += statRow('Banner Specific', (sumWelfare / n).toFixed(1), '', false, tip('bonusBannerSpecific'));
-  html += statRow('30-pull bonus', (sumBonus30 / n).toFixed(1), '', false, tip('bonus30'));
-  html += statRow('60-pull bonus', (sumBonus60 / n).toFixed(1), '', false, tip('bonus60'));
+  html += statRow('Banner Specific', (sumWelfare / n).toFixed(1), '', false, tip('bonusBannerSpecific'), addMetric('bonus-banner-specific', titleOf(bonusTitle, trResultLabel('Banner Specific')), () => results.map((result) => result.welfarePullCount), formatInteger));
+  html += statRow('30-pull bonus', (sumBonus30 / n).toFixed(1), '', false, tip('bonus30'), addMetric('bonus-30-pull', titleOf(bonusTitle, trResultLabel('30-pull bonus')), () => results.map((result) => result.bonus30PullCount), formatInteger));
+  html += statRow('60-pull bonus', (sumBonus60 / n).toFixed(1), '', false, tip('bonus60'), addMetric('bonus-60-pull', titleOf(bonusTitle, trResultLabel('60-pull bonus')), () => results.map((result) => result.bonus60PullCount), formatInteger));
   html += `</div>`;
 
-  // Total Pulls
   const meanTotal = mean(totalPulls);
   const totalPerBanner = meanTotal / (sumBanners / n);
-  html += `<h3>${tr('result.totalPulls', 'Total Pulls')}</h3>`;
+  html += `<h3>${totalTitle}</h3>`;
   html += `<div class="stat-grid">`;
-  html += statRow('Mean', meanTotal.toFixed(1), '', false, tip('totalMean', { banners: config.maxBanners }));
-  html += statRow('Pulls/Banner', totalPerBanner.toFixed(1), '', false, tip('totalPerBanner'));
+  html += statRow('Mean', meanTotal.toFixed(1), '', false, tip('totalMean', { banners: config.maxBanners }), addMetric('total-pulls-mean', titleOf(totalTitle, trResultLabel('Mean')), () => results.map(totalPullCountFor), formatInteger));
+  html += statRow('Pulls/Banner', totalPerBanner.toFixed(1), '', false, tip('totalPerBanner'), addMetric('total-pulls-banner', titleOf(totalTitle, trResultLabel('Pulls/Banner')), () => results.map((result) => totalPullCountFor(result) / safeBannerCount(result)), formatFixed(2)));
   html += `</div>`;
 
-  // Characters
   const avgBanners = sumBanners / n;
   const avgFour = sumFour / n;
   const avgFive = sumFive / n;
@@ -899,66 +1142,62 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
   const avgLimited = sumLimited / n;
   const avgStandard = sumStandard / n;
   const avgSixTotal = avgRateUp + avgLimited + avgStandard;
-  html += `<h3>${tr('result.characters', 'Characters')}</h3>`;
+  html += `<h3>${charactersTitle}</h3>`;
   html += `<div class="stat-grid">`;
-  html += statRow('4★', avgFour.toFixed(2), '', false, tip('fourTotal', { banners: config.maxBanners }));
-  html += statRow('4★ /banner', (avgFour / avgBanners).toFixed(2), '', false, tip('fourPerBanner'));
-  html += statRow('5★', avgFive.toFixed(2), 'blue', false, tip('fiveTotal', { banners: config.maxBanners }));
-  html += statRow('5★ /banner', (avgFive / avgBanners).toFixed(2), 'blue', false, tip('fivePerBanner'));
-  html += statRow('6★ standard', avgStandard.toFixed(2), 'purple', false, tip('sixStandard'));
-  html += statRow('6★ standard/banner', (avgStandard / avgBanners).toFixed(2), 'purple', false, tip('sixStandardPerBanner'));
-  html += statRow('6★ rate-up', avgRateUp.toFixed(2), 'gold', false, tip('sixRateUp', { banners: config.maxBanners }));
-  html += statRow('6★ rate-up/banner', (avgRateUp / avgBanners).toFixed(2), 'gold', false, tip('sixRateUpPerBanner'));
-  html += statRow('6★ limited', avgLimited.toFixed(2), 'orange', false, tip('sixLimited'));
-  html += statRow('6★ limited/banner', (avgLimited / avgBanners).toFixed(2), 'orange', false, tip('sixLimitedPerBanner'));
-  html += statRow('6★ total', avgSixTotal.toFixed(2), 'gold', false, tip('sixTotal', { banners: config.maxBanners }));
-  html += statRow('6★ total/banner', (avgSixTotal / avgBanners).toFixed(2), 'gold', false, tip('sixTotalPerBanner'));
+  html += statRow('4★', avgFour.toFixed(2), '', false, tip('fourTotal', { banners: config.maxBanners }), addMetric('characters-four', titleOf(charactersTitle, trResultLabel('4★')), () => results.map((result) => result.totalFourStar), formatInteger));
+  html += statRow('4★ /banner', (avgFour / avgBanners).toFixed(2), '', false, tip('fourPerBanner'), addMetric('characters-four-banner', titleOf(charactersTitle, trResultLabel('4★ /banner')), () => results.map((result) => result.totalFourStar / safeBannerCount(result)), formatFixed(2)));
+  html += statRow('5★', avgFive.toFixed(2), 'blue', false, tip('fiveTotal', { banners: config.maxBanners }), addMetric('characters-five', titleOf(charactersTitle, trResultLabel('5★')), () => results.map((result) => result.totalFiveStar), formatInteger));
+  html += statRow('5★ /banner', (avgFive / avgBanners).toFixed(2), 'blue', false, tip('fivePerBanner'), addMetric('characters-five-banner', titleOf(charactersTitle, trResultLabel('5★ /banner')), () => results.map((result) => result.totalFiveStar / safeBannerCount(result)), formatFixed(2)));
+  html += statRow('6★ standard', avgStandard.toFixed(2), 'purple', false, tip('sixStandard'), addMetric('characters-six-standard', titleOf(charactersTitle, trResultLabel('6★ standard')), () => results.map((result) => result.totalSixStarStandard), formatInteger));
+  html += statRow('6★ standard/banner', (avgStandard / avgBanners).toFixed(2), 'purple', false, tip('sixStandardPerBanner'), addMetric('characters-six-standard-banner', titleOf(charactersTitle, trResultLabel('6★ standard/banner')), () => results.map((result) => result.totalSixStarStandard / safeBannerCount(result)), formatFixed(2)));
+  html += statRow('6★ rate-up', avgRateUp.toFixed(2), 'gold', false, tip('sixRateUp', { banners: config.maxBanners }), addMetric('characters-six-rateup', titleOf(charactersTitle, trResultLabel('6★ rate-up')), () => results.map((result) => result.totalSixStarRateUp), formatInteger));
+  html += statRow('6★ rate-up/banner', (avgRateUp / avgBanners).toFixed(2), 'gold', false, tip('sixRateUpPerBanner'), addMetric('characters-six-rateup-banner', titleOf(charactersTitle, trResultLabel('6★ rate-up/banner')), () => results.map((result) => result.totalSixStarRateUp / safeBannerCount(result)), formatFixed(2)));
+  html += statRow('6★ limited', avgLimited.toFixed(2), 'orange', false, tip('sixLimited'), addMetric('characters-six-limited', titleOf(charactersTitle, trResultLabel('6★ limited')), () => results.map((result) => result.totalSixStarLimited), formatInteger));
+  html += statRow('6★ limited/banner', (avgLimited / avgBanners).toFixed(2), 'orange', false, tip('sixLimitedPerBanner'), addMetric('characters-six-limited-banner', titleOf(charactersTitle, trResultLabel('6★ limited/banner')), () => results.map((result) => result.totalSixStarLimited / safeBannerCount(result)), formatFixed(2)));
+  html += statRow('6★ total', avgSixTotal.toFixed(2), 'gold', false, tip('sixTotal', { banners: config.maxBanners }), addMetric('characters-six-total', titleOf(charactersTitle, trResultLabel('6★ total')), () => results.map((result) => sixTotalFor(result)), formatInteger));
+  html += statRow('6★ total/banner', (avgSixTotal / avgBanners).toFixed(2), 'gold', false, tip('sixTotalPerBanner'), addMetric('characters-six-total-banner', titleOf(charactersTitle, trResultLabel('6★ total/banner')), () => results.map((result) => sixTotalFor(result) / safeBannerCount(result)), formatFixed(2)));
   html += `</div>`;
 
-  // Pulls per 6-star
-  html += `<h3>${tr('result.pullsPerSix', 'Pulls per 6★')}</h3>`;
+  html += `<h3>${pullsPerSixTitle}</h3>`;
   html += `<div class="stat-grid">`;
-  if (sumRateUp > 0) html += statRow('Paid / rate-up', (sumPaid / sumRateUp).toFixed(2), 'gold', false, tip('paidPerRateUp'));
-  if (totalSixStar > 0) html += statRow('Paid / any 6★', (sumPaid / totalSixStar).toFixed(2), '', false, tip('paidPerAnySix'));
+  if (sumRateUp > 0) html += statRow('Paid / rate-up', (sumPaid / sumRateUp).toFixed(2), 'gold', false, tip('paidPerRateUp'), addMetric('pulls-per-rateup', titleOf(pullsPerSixTitle, trResultLabel('Paid / rate-up')), () => results.map((result) => (result.totalSixStarRateUp > 0 ? result.pullCount / result.totalSixStarRateUp : NaN)), formatFixed(2)));
+  if (totalSixStar > 0) html += statRow('Paid / any 6★', (sumPaid / totalSixStar).toFixed(2), '', false, tip('paidPerAnySix'), addMetric('pulls-per-any-six', titleOf(pullsPerSixTitle, trResultLabel('Paid / any 6★')), () => results.map((result) => (sixTotalFor(result) > 0 ? result.pullCount / sixTotalFor(result) : NaN)), formatFixed(2)));
   html += `</div>`;
 
-  // Arsenal Tickets
-  html += `<h3>${tr('result.arsenalTickets', 'Arsenal Tickets')}</h3>`;
+  html += `<h3>${arsenalTitle}</h3>`;
   html += `<div class="stat-grid">`;
-  html += statRow('From 4★', Math.round(arsenalFrom4), '', false, tip('arsenalFrom4')) + '<div></div>';
-  html += statRow('From 5★', Math.round(arsenalFrom5), '', false, tip('arsenalFrom5')) + '<div></div>';
-  html += statRow('From 6★', Math.round(arsenalFrom6), '', false, tip('arsenalFrom6')) + '<div></div>';
-  html += statRow('Total', Math.round(arsenalTotal), 'green', false, tip('arsenalTotal', { banners: config.maxBanners }));
-  html += statRow('→ Arsenal 10-pull', (arsenalTotal / 1980).toFixed(2), 'green', false, tip('arsenalTenPull'));
+  html += statRow('From 4★', Math.round(arsenalFrom4), '', false, tip('arsenalFrom4'), addMetric('arsenal-from4', titleOf(arsenalTitle, trResultLabel('From 4★')), () => results.map(arsenalFrom4For), formatInteger)) + '<div></div>';
+  html += statRow('From 5★', Math.round(arsenalFrom5), '', false, tip('arsenalFrom5'), addMetric('arsenal-from5', titleOf(arsenalTitle, trResultLabel('From 5★')), () => results.map(arsenalFrom5For), formatInteger)) + '<div></div>';
+  html += statRow('From 6★', Math.round(arsenalFrom6), '', false, tip('arsenalFrom6'), addMetric('arsenal-from6', titleOf(arsenalTitle, trResultLabel('From 6★')), () => results.map(arsenalFrom6For), formatInteger)) + '<div></div>';
+  html += statRow('Total', Math.round(arsenalTotal), 'green', false, tip('arsenalTotal', { banners: config.maxBanners }), addMetric('arsenal-total', titleOf(arsenalTitle, trResultLabel('Total')), () => results.map(arsenalTotalFor), formatInteger));
+  html += statRow('→ Arsenal 10-pull', (arsenalTotal / 1980).toFixed(2), 'green', false, tip('arsenalTenPull'), addMetric('arsenal-tenpull', titleOf(arsenalTitle, trResultLabel('→ Arsenal 10-pull')), () => results.map((result) => arsenalTotalFor(result) / 1980), formatFixed(2)));
   html += `<div></div>`;
-  html += statRow('→ Arsenal 10-pull/banner', (arsenalTotal / 1980 / avgBanners).toFixed(2), 'green', false, tip('arsenalTenPullPerBanner'));
+  html += statRow('→ Arsenal 10-pull/banner', (arsenalTotal / 1980 / avgBanners).toFixed(2), 'green', false, tip('arsenalTenPullPerBanner'), addMetric('arsenal-tenpull-banner', titleOf(arsenalTitle, trResultLabel('→ Arsenal 10-pull/banner')), () => results.map((result) => arsenalTotalFor(result) / 1980 / safeBannerCount(result)), formatFixed(2)));
   html += `</div>`;
 
-  // Quota Exchange
-  html += `<h3>${tr('result.quotaExchange', 'Quota Exchange')}</h3>`;
+  html += `<h3>${quotaTitle}</h3>`;
   html += `<div class="stat-grid">`;
-  html += statRow('Bond Quota', bondQuota.toFixed(0), '', false, tip('bondQuota'));
-  html += statRow('→ HH Ticket', refundTickets.toFixed(1));
+  html += statRow('Bond Quota', bondQuota.toFixed(0), '', false, tip('bondQuota'), addMetric('quota-bond', titleOf(quotaTitle, trResultLabel('Bond Quota')), () => results.map(bondQuotaFor), formatInteger));
+  html += statRow('→ HH Ticket', refundTickets.toFixed(1), '', false, undefined, addMetric('quota-hh-ticket', titleOf(quotaTitle, trResultLabel('→ HH Ticket')), () => results.map(hhTicketFor), formatFixed(1)));
   html += `<div></div>`;
-  html += statRow('→ HH Ticket/banner', (refundTickets / avgBanners).toFixed(2));
+  html += statRow('→ HH Ticket/banner', (refundTickets / avgBanners).toFixed(2), '', false, undefined, addMetric('quota-hh-ticket-banner', titleOf(quotaTitle, trResultLabel('→ HH Ticket/banner')), () => results.map((result) => hhTicketFor(result) / safeBannerCount(result)), formatFixed(2)));
   html += `<div></div><div></div>`;
-  html += statRow('AIC Quota from 4★', aicQuotaFrom4.toFixed(0), '', false, tip('aicFrom4'));
+  html += statRow('AIC Quota from 4★', aicQuotaFrom4.toFixed(0), '', false, tip('aicFrom4'), addMetric('quota-aic4', titleOf(quotaTitle, trResultLabel('AIC Quota from 4★')), () => results.map(aicFrom4For), formatInteger));
   html += `<div></div>`;
-  html += statRow('AIC Quota from 5★', aicQuotaFrom5.toFixed(0), '', false, tip('aicFrom5'));
+  html += statRow('AIC Quota from 5★', aicQuotaFrom5.toFixed(0), '', false, tip('aicFrom5'), addMetric('quota-aic5', titleOf(quotaTitle, trResultLabel('AIC Quota from 5★')), () => results.map(aicFrom5For), formatInteger));
   html += `<div></div>`;
   const bannerHHTickets = aicQuotaTotal / 70;
-  html += statRow('AIC Quota', aicQuotaTotal.toFixed(0), 'blue', false, tip('aicTotal', { banners: config.maxBanners }));
-  html += statRow('→ Banner HH Ticket', bannerHHTickets.toFixed(1), 'blue', false, tip('bannerHHTicket'));
+  html += statRow('AIC Quota', aicQuotaTotal.toFixed(0), 'blue', false, tip('aicTotal', { banners: config.maxBanners }), addMetric('quota-aic-total', titleOf(quotaTitle, trResultLabel('AIC Quota')), () => results.map(aicTotalFor), formatInteger));
+  html += statRow('→ Banner HH Ticket', bannerHHTickets.toFixed(1), 'blue', false, tip('bannerHHTicket'), addMetric('quota-banner-hh', titleOf(quotaTitle, trResultLabel('→ Banner HH Ticket')), () => results.map((result) => aicTotalFor(result) / 70), formatFixed(1)));
   html += `<div></div>`;
-  html += statRow('→ Banner HH Ticket/banner', (bannerHHTickets / avgBanners).toFixed(2), 'blue', false, tip('bannerHHTicketPerBanner'));
+  html += statRow('→ Banner HH Ticket/banner', (bannerHHTickets / avgBanners).toFixed(2), 'blue', false, tip('bannerHHTicketPerBanner'), addMetric('quota-banner-hh-banner', titleOf(quotaTitle, trResultLabel('→ Banner HH Ticket/banner')), () => results.map((result) => aicTotalFor(result) / 70 / safeBannerCount(result)), formatFixed(2)));
   html += `</div>`;
 
-  // Money, Money, Money
   const shortfall = paidPerBanner - welfarePulls;
   const withMonthly = shortfall - monthlyCardPulls;
   const withMonthlyBundle = withMonthly - bundlePulls;
 
-  html += `<h3>${tr('result.money', 'Money, Money, Money')}</h3>`;
+  html += `<h3>${moneyTitle}</h3>`;
   const mcCostPerPull = monthlyCardProrated / monthlyCardPulls;
   const pullsWord = tr('result.pullsWord', 'pulls');
   const perPull = tr('result.perPull', '/pull');
@@ -968,63 +1207,52 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
     .replace('{cost}', cost);
   html += packRow('Monthly Card',
     [`${fmtMoney(currency.monthlyCard)}/30${dayUnit}`, `${fmtMoney(monthlyCardProrated)}/${bannerLength}${dayUnit}`, pullsAtPerPull(monthlyCardPulls.toFixed(1), fmtMoney(mcCostPerPull))],
-    tip(
-      'monthlyCardPack',
-      {
-        cost30: fmtMoney(currency.monthlyCard),
-        days: bannerLength,
-        costDays: fmtMoney(monthlyCardProrated),
-        pulls: monthlyCardPulls.toFixed(1),
-      },
-    ));
+    tip('monthlyCardPack', {
+      cost30: fmtMoney(currency.monthlyCard),
+      days: bannerLength,
+      costDays: fmtMoney(monthlyCardProrated),
+      pulls: monthlyCardPulls.toFixed(1),
+    }));
   const bundleCostPerPull = currency.bundle / bundlePulls;
   html += packRow('HH Bundle',
     [`${fmtMoney(currency.bundle)}${tr('result.perBanner', '/banner')}`, pullsAtPerPull(bundlePulls, fmtMoney(bundleCostPerPull))],
-    tip(
-      'hhBundlePack',
-      { cost: fmtMoney(currency.bundle) },
-    ));
+    tip('hhBundlePack', { cost: fmtMoney(currency.bundle) }));
   const hardSpendCurrencyLabel = tr(`ui.${currency.hardSpendCurrency}`, currency.hardSpendCurrency);
   const hardSpendLabel = `${tr('ui.hardSpend', 'Hard Spend')} (${currency.hardSpendQty} ${hardSpendCurrencyLabel})`;
   html += packRow(hardSpendLabel,
     [`${fmtMoney(currency.hardSpendCost)}`, `${hardSpendPulls.toFixed(1)} ${pullsWord}`, `${fmtMoney(costPerPull)}${perPull}`],
-    tip(
-      'hardSpendPack',
-      {
-        cost: fmtMoney(currency.hardSpendCost),
-        qty: currency.hardSpendQty,
-        currency: hardSpendCurrencyLabel,
-        oroberyl: hardSpendOrbs,
-        orbsPerPull: ORBS_PER_PULL,
-      },
-    ));
+    tip('hardSpendPack', {
+      cost: fmtMoney(currency.hardSpendCost),
+      qty: currency.hardSpendQty,
+      currency: hardSpendCurrencyLabel,
+      oroberyl: hardSpendOrbs,
+      orbsPerPull: ORBS_PER_PULL,
+    }));
   html += `<div class="stat-grid">`;
-  const fmtShortfall = (v) => (v > 0 ? '-' : '+') + Math.abs(v).toFixed(1) + ` ${pullsWord}`;
-  const shortfallColor = (v) => v > 0 ? 'red' : 'green';
+  const fmtShortfall = (value) => (value > 0 ? '-' : '+') + Math.abs(value).toFixed(1) + ` ${pullsWord}`;
+  const formatShortfallValue = (value) => `${value >= 0 ? '+' : '-'}${Math.abs(value).toFixed(1)} ${pullsWord}`;
+  const shortfallColor = (value) => (value > 0 ? 'red' : 'green');
   const shortfallLabel = shortfall > 0 ? 'Shortfall/banner' : 'Gain/banner';
   const shortfallTip = shortfall > 0
     ? tip('shortfall', { welfare: welfarePulls })
     : tip('surplus', { welfare: welfarePulls, pulls: Math.abs(shortfall).toFixed(1) });
-  html += statRow(shortfallLabel, fmtShortfall(shortfall), shortfallColor(shortfall), false, shortfallTip);
+  html += statRow(shortfallLabel, fmtShortfall(shortfall), shortfallColor(shortfall), false, shortfallTip, addMetric('money-shortfall', titleOf(moneyTitle, trResultLabel(shortfallLabel)), () => results.map(shortfallDisplayFor), formatShortfallValue));
   html += `<div></div>`;
-  const bundleCostProrated = monthlyCardProrated + currency.bundle;
   const costLabel = tr('result.costPerDays', 'Cost/{days} days').replace('{days}', bannerLength);
-  html += statRow('w/ MC', fmtShortfall(withMonthly), shortfallColor(withMonthly), false, tip('withMc'));
-  html += statRow(costLabel, fmtMoney(monthlyCardProrated), '', false, tip('costPerPeriod'));
-  html += statRow('w/ MC, Bundle', fmtShortfall(withMonthlyBundle), shortfallColor(withMonthlyBundle), false, tip('withMcBundle'));
-  html += statRow(costLabel, fmtMoney(bundleCostProrated), '', false, tip('costPerPeriod'));
+  html += statRow('w/ MC', fmtShortfall(withMonthly), shortfallColor(withMonthly), false, tip('withMc'), addMetric('money-mc', titleOf(moneyTitle, trResultLabel('w/ MC')), () => results.map(withMonthlyDisplayFor), formatShortfallValue));
+  html += statRow(costLabel, fmtMoney(monthlyCardProrated), '', false, tip('costPerPeriod'), addMetric('money-mc-cost', titleOf(moneyTitle, `${trResultLabel('w/ MC')} - ${costLabel}`), () => results.map(() => monthlyCardProrated), fmtMoney));
+  html += statRow('w/ MC, Bundle', fmtShortfall(withMonthlyBundle), shortfallColor(withMonthlyBundle), false, tip('withMcBundle'), addMetric('money-mc-bundle', titleOf(moneyTitle, trResultLabel('w/ MC, Bundle')), () => results.map(withMonthlyBundleDisplayFor), formatShortfallValue));
+  html += statRow(costLabel, fmtMoney(bundleCostProrated), '', false, tip('costPerPeriod'), addMetric('money-mc-bundle-cost', titleOf(moneyTitle, `${trResultLabel('w/ MC, Bundle')} - ${costLabel}`), () => results.map(() => bundleCostProrated), fmtMoney));
   const hardSpendTotalCost = bundleCostProrated + Math.max(0, withMonthlyBundle) * costPerPull;
   html += statRow('w/ MC, Bundle, Hard Spend', '---', 'green');
-  html += statRow(costLabel, fmtMoney(hardSpendTotalCost), '', false, tip('costPerPeriod'));
+  html += statRow(costLabel, fmtMoney(hardSpendTotalCost), '', false, tip('costPerPeriod'), addMetric('money-hard-spend-cost', titleOf(moneyTitle, `${trResultLabel('w/ MC, Bundle, Hard Spend')} - ${costLabel}`), () => results.map(hardSpendTotalCostFor), fmtMoney));
   html += `</div>`;
 
-  // Pull Distribution (tabbed: Termination / Rate-Up 6★)
   html += `<h3>${tr('result.pullDistribution', 'Pull Distribution')}</h3>`;
   html += renderPullDistSection(terminationCounts, rateUpCounts);
-
-  // Banner inspector (sample trial)
   html += renderBannerInspector(sampleBannerLogs);
 
+  _metricDistributionStore.set(win, metricMap);
   resultsContent.innerHTML = html;
   initBannerTabs(win);
   initPullDistTabs(win);
@@ -1040,13 +1268,15 @@ function packRow(label, items, tipText) {
   </div>`;
 }
 
-function statRow(label, value, colorClass, span, tipOverride) {
+function statRow(label, value, colorClass, span, tipOverride, popupKey) {
   const tooltip = tipOverride || tr(`detailTipLabel.${label}`, TOOLTIPS[label]);
   const tipAttr = tooltip ? ` data-tip="${escapeHtml(tooltip)}"` : '';
   const tipClass = tooltip ? ' has-tip' : '';
+  const popupAttr = popupKey ? ` data-dist-key="${popupKey}" tabindex="0" role="button" aria-haspopup="dialog"` : '';
+  const valueClass = popupKey ? ' stat-value-clickable' : '';
   return `<div class="stat-row${span ? ' span-2' : ''}"${tipAttr}>
     <span class="stat-label${tipClass}">${trResultLabel(label)}${tooltip ? ' <span class="tip-icon">?</span>' : ''}</span>
-    <span class="stat-value${colorClass ? ' ' + colorClass : ''}">${value}</span>
+    <span class="stat-value${colorClass ? ' ' + colorClass : ''}${valueClass}"${popupAttr}>${value}</span>
   </div>`;
 }
 
@@ -1062,13 +1292,15 @@ function ensureTooltip() {
 }
 
 function showTooltip(target) {
-  const tip = target.closest('[data-tip]');
+  const icon = target.closest('.tip-icon');
+  if (!icon) return;
+  const tip = icon.closest('[data-tip]');
   if (!tip) return;
   const el = ensureTooltip();
   el.textContent = tip.dataset.tip;
   el.classList.add('visible');
 
-  const rect = tip.getBoundingClientRect();
+  const rect = icon.getBoundingClientRect();
   el.style.left = rect.left + 'px';
   el.style.top = '0px';
   // Measure, then position above the row
@@ -1100,7 +1332,7 @@ function resetToDefaults() {
   document.getElementById('banners-input').value = 100;
   document.getElementById('banner-length').value = 17;
   document.getElementById('welfare-pulls').value = 40;
-  document.getElementById('welfare-free-pulls').value = 5;
+  document.getElementById('welfare-free-pulls').value = 10;
   document.getElementById('start-chartered-hh').checked = false;
   document.getElementById('start-5star-pity').value = 0;
   document.getElementById('start-6star-pity').value = 0;
@@ -1141,10 +1373,15 @@ export function initPlanner() {
   const shareBtn = document.getElementById('share-btn');
   const header = document.querySelector('header');
   const windowsContainer = document.getElementById('windows-container');
-  const changelogModal = document.getElementById('changelog-modal');
-  const changelogBtn = document.getElementById('changelog-btn');
-  const changelogCloseBtn = changelogModal.querySelector('.modal-close');
+  const helpModal = document.getElementById('help-modal');
+  const distributionModal = ensureDistributionModal();
+  const helpBtn = document.getElementById('help-btn');
+  const helpCloseBtn = helpModal.querySelector('.modal-close');
   const languageSelect = document.getElementById('language-select');
+
+  const toggleModal = (modal, visible) => {
+    modal.classList.toggle('hidden', !visible);
+  };
 
   const lang = initLanguage();
   if (languageSelect) languageSelect.value = lang;
@@ -1173,9 +1410,13 @@ export function initPlanner() {
         if (placeholder) placeholder.textContent = t('ui.runPlaceholder');
         const strategy = win.querySelector('.strategy-select');
         const desc = win.querySelector('.strategy-description');
+        const editor = win.querySelector('.strategy-editor');
         if (strategy && desc) {
           const localized = t(`strategyDesc.${strategy.value}`);
           desc.textContent = localized.startsWith('strategyDesc.') ? getStrategyDescription(strategy.value) : localized;
+        }
+        if (strategy && editor && strategy.value !== 'custom' && isDefaultBuiltInStrategyCode(strategy.value, editor)) {
+          applyBuiltInStrategyCode(editor, strategy.value);
         }
       });
     });
@@ -1188,26 +1429,37 @@ export function initPlanner() {
   windowsContainer.addEventListener('change', scheduleHashUpdate);
   resetBtn.addEventListener('click', resetToDefaults);
   shareBtn.addEventListener('click', copyShareLink);
-  changelogBtn.addEventListener('click', () => {
-    changelogModal.classList.remove('hidden');
+  helpBtn.addEventListener('click', () => {
+    toggleModal(helpModal, true);
   });
-  changelogCloseBtn.addEventListener('click', () => {
-    changelogModal.classList.add('hidden');
+  helpCloseBtn.addEventListener('click', () => {
+    toggleModal(helpModal, false);
   });
-  changelogModal.addEventListener('click', (e) => {
-    if (e.target === changelogModal) changelogModal.classList.add('hidden');
+  helpModal.addEventListener('click', (e) => {
+    if (e.target === helpModal) toggleModal(helpModal, false);
+  });
+  document.querySelectorAll('.help-tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.helpTab;
+      document.querySelectorAll('.help-tab').forEach((item) => {
+        item.classList.toggle('active', item === tab);
+      });
+      document.querySelectorAll('.help-tab-panel').forEach((panel) => {
+        panel.classList.toggle('hidden', panel.dataset.helpPanel !== target);
+      });
+    });
   });
 
   _mouseenterHandler = (e) => {
-    if (e.target.closest('[data-tip]')) showTooltip(e.target);
+    if (e.target.closest('.tip-icon')) showTooltip(e.target);
   };
   _mouseleaveHandler = (e) => {
-    if (e.target.closest('[data-tip]')) hideTooltip();
+    if (e.target.closest('.tip-icon')) hideTooltip();
   };
   _keydownHandler = (e) => {
-    if (e.key === 'Escape' && !changelogModal.classList.contains('hidden')) {
-      changelogModal.classList.add('hidden');
-    }
+    if (e.key !== 'Escape') return;
+    if (!helpModal.classList.contains('hidden')) toggleModal(helpModal, false);
+    if (!distributionModal.classList.contains('hidden')) distributionModal.classList.add('hidden');
   };
 
   document.addEventListener('mouseenter', _mouseenterHandler, true);
@@ -1226,4 +1478,6 @@ export function destroyPlanner() {
   _keydownHandler = null;
   if (tooltipEl) tooltipEl.remove();
   tooltipEl = null;
+  if (_distributionModalEl) _distributionModalEl.remove();
+  _distributionModalEl = null;
 }

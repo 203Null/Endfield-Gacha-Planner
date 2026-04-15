@@ -53,6 +53,23 @@ return 'stop';`,
   'rate-up-then-60': `// Description: Do 10-pulls until the rate-up character is obtained, then pull to 60 if less than 60 pulls made
 if (!banner.gotRateUp) return 'pull10';
 return banner.pullCount >= 60 ? 'stop' : 'pull10';`,
+  'full-collection-optimal': `// Description: Do single-pull until the rate up. If it rate-up is pulled at or after 46 pulls, top up to 60 for headhunting dossier. Best expected cost when targeting 100% characters.
+if (banner.gotRateUp) {
+  if (banner.pullCount >= 60 || banner.pullCount < 46) return 'stop';
+  return 'pull1';
+}
+
+return 'pull1';`,
+  'null-select': `// Description: Do 10-pulls until near a 6★ pity, then single-pull until the 6*. If it rate-up is pulled at or after 46 pulls, top up to 60 for headhunting dossier. Strategy used by site maker, best balance between ease of pulling & expected cost.
+if (banner.gotRateUp) {
+  if (banner.pullCount >= 60) return 'stop';
+  return banner.pullCount >= 51 ? 'pull1'
+    : banner.pullCount >= 46 ? 'pull10'
+    : 'stop';
+}
+
+if (player.sixStarPity >= 60 || banner.pullCount > 110) return 'pull1';
+return 'pull10';`,
   'first-six': `// Description: Do 10-pulls until any 6★ is obtained
 const got6 = banner.totalSixStarRateUp + banner.totalSixStarLimited + banner.totalSixStarStandard;
 return got6 > 0 ? 'stop' : 'pull10';`,
@@ -67,23 +84,40 @@ return banner.pullCount >= 30 ? 'stop' : 'pull10';`,
 return banner.pullCount >= 60 ? 'stop' : 'pull10';`,
   '80': `// Description: Do 10-pulls until at least 80 pulls are made
 return banner.pullCount >= 80 ? 'stop' : 'pull10';`,
+  'bank-120': `// Description: Start with 160 pulls, +40/banner, pull if bank >= 120, pull until rate-up
+
+// --- Probe: decide whether to pull this banner ---
+if (banner.skipProbe) {
+  if (banner.serial === 1) {
+    player.bank = 160;
+  } else {
+    player.bank += 40;
+  }
+
+  banner.pulling = player.bank >= 120;
+  banner.paidPulls = 0;
+
+  return banner.pulling ? 'pull-hold-free' : 'skip-hold-free';
+}
+
+// Always consume held free pulls before paid pulls.
+if (banner.bonus60Available && banner.pullCount === 0) return 'pullBonus60';
+if (banner.welfarePullsRemaining > 0) return 'pull1Free';
+
+if (!banner.pulling) {
+  return 'stop';
+}
+
+if (banner.gotRateUp) {
+  const hhTickets = banner.totalFiveStar * 10 / 25;
+  player.bank += hhTickets;
+  return 'stop';
+}
+
+player.bank--;
+banner.paidPulls++;
+return 'pull1';`,
 };
-
-export const STRATEGY_HEADER = `// Available: player, banner
-// Return: 'pull1', 'pull10', or 'stop'
-//
-// player fields:
-//   sixStarPity, fiveStarPity, pullCount,
-//   totalSixStarRateUp, totalSixStarLimited,
-//   totalSixStarStandard, totalFiveStar, totalFourStar
-//
-// banner fields:
-//   serial, pullCount, gotRateUp,
-//   bonus30Used, bonus60Used,
-//   totalSixStarRateUp, totalSixStarLimited,
-//   totalSixStarStandard, totalFiveStar, totalFourStar
-
-`;
 
 export const OUTCOME_LABELS = ['4★', '5★', '6★ Rate-Up', '6★ Limited', '6★ Standard'];
 export const OUTCOME_CLASSES = ['four-star', 'five-star', 'six-star-rateup', 'six-star-limited', 'six-star-standard'];
