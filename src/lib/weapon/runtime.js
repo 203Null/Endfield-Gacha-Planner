@@ -239,19 +239,19 @@ function createSimWindow(opts = {}) {
 
   win.querySelector('.window-export').addEventListener('click', () => exportWindowAsJpeg(win));
   win.querySelector('.run-btn').addEventListener('click', () => runSimulation(win));
+  bindPercentileSlider(win);
+  setPercentileVisibility(win, false);
   win.querySelector('.results-panel').addEventListener('click', (event) => {
-    const trigger = event.target.closest('.stat-value[data-dist-key]');
+    const trigger = event.target.closest('[data-dist-key]');
     if (!trigger) return;
-    const metric = metricDistributionStore.get(win)?.get(trigger.dataset.distKey);
-    openDistributionModal(metric, trigger.closest('.stat-row')?.dataset.tip || '');
+    openDistributionFromTrigger(win, trigger);
   });
   win.querySelector('.results-panel').addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
-    const trigger = event.target.closest('.stat-value[data-dist-key]');
+    const trigger = event.target.closest('[data-dist-key]');
     if (!trigger) return;
     event.preventDefault();
-    const metric = metricDistributionStore.get(win)?.get(trigger.dataset.distKey);
-    openDistributionModal(metric, trigger.closest('.stat-row')?.dataset.tip || '');
+    openDistributionFromTrigger(win, trigger);
   });
 
   applyStaticTranslations(clone);
@@ -290,6 +290,8 @@ function runSimulation(win) {
   progressText.textContent = '0%';
   resultsPlaceholder.classList.add('hidden');
   resultsContent.classList.add('hidden');
+  metricDistributionStore.delete(win);
+  setPercentileVisibility(win, false);
 
   const worker = new Worker(new URL('./weapon-engine.worker.js', import.meta.url), { type: 'module' });
 
@@ -335,6 +337,7 @@ function runSimulation(win) {
 
 function renderDistribution(sorted, options = {}) {
   const formatValue = options.formatValue || defaultDistributionFormatter;
+  const selectedPercentile = Number.isFinite(options.selectedPercentile) ? Math.max(1, Math.min(100, options.selectedPercentile)) : null;
   const buckets = 30;
   const absMin = sorted[0];
   const absMax = sorted[sorted.length - 1];
@@ -346,12 +349,8 @@ function renderDistribution(sorted, options = {}) {
   const trimMax = percentile(sorted, 99);
   const minVal = trimMin < trimMax ? trimMin : absMin;
   const maxVal = trimMin < trimMax ? trimMax : absMax;
-  const rawRange = maxVal - minVal;
-  const pad = Math.max(rawRange * 0.05, 0.5);
-  const plotMin = minVal - pad;
-  const plotMax = maxVal + pad;
-  const range = plotMax - plotMin;
-  const bucketSize = rawRange / buckets;
+  const range = maxVal - minVal;
+  const bucketSize = range / buckets;
   const counts = new Array(buckets).fill(0);
   let trimmedLow = 0;
   let trimmedHigh = 0;
@@ -392,8 +391,7 @@ function renderDistribution(sorted, options = {}) {
   let svg = `<svg class="dist-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
   for (let i = 0; i < buckets; i++) {
     const barH = maxCount > 0 ? (counts[i] / maxCount) * chartH : 0;
-    const bucketMidVal = minVal + (i + 0.5) * bucketSize;
-    const x = padL + ((bucketMidVal - plotMin) / range) * chartW - barW / 2;
+    const x = padL + i * barW;
     const y = padT + chartH - barH;
     const intensity = maxCount > 0 ? counts[i] / maxCount : 0;
     const r = Math.round(108 + intensity * 30);
@@ -402,12 +400,22 @@ function renderDistribution(sorted, options = {}) {
   }
 
   percentileMarkers.forEach((marker) => {
-    const xRaw = padL + ((marker.val - plotMin) / range) * chartW;
+    const xRaw = padL + ((marker.val - minVal) / range) * chartW;
     const xPos = Math.max(padL, Math.min(padL + chartW, xRaw));
     svg += `<line x1="${xPos}" y1="${padT}" x2="${xPos}" y2="${padT + chartH + 4}" stroke="${marker.color}" stroke-width="1" stroke-opacity="0.7" stroke-dasharray="${marker.p === 50 ? 'none' : '2,2'}"/>`;
     svg += `<text x="${xPos}" y="${padT + chartH + 16}" text-anchor="middle" fill="${marker.color}" font-size="9" font-family="inherit" opacity="0.9">${marker.label}</text>`;
     svg += `<text x="${xPos}" y="${padT + chartH + 27}" text-anchor="middle" fill="${marker.color}" font-size="9" font-family="inherit" font-weight="600">${formatDistributionDisplayValue(marker.val, formatValue)}</text>`;
   });
+
+  if (selectedPercentile != null) {
+    const selectedValue = percentile(sorted, selectedPercentile);
+    const xRaw = padL + ((selectedValue - minVal) / range) * chartW;
+    const xPos = Math.max(padL, Math.min(padL + chartW, xRaw));
+    const pointerColor = '#c47dff';
+    svg += `<line x1="${xPos}" y1="${padT - 1}" x2="${xPos}" y2="${padT + chartH + 6}" stroke="${pointerColor}" stroke-width="1.8" stroke-opacity="0.9"/>`;
+    svg += `<polygon points="${xPos - 5},${padT - 1} ${xPos + 5},${padT - 1} ${xPos},${padT + 6}" fill="${pointerColor}" fill-opacity="0.95"/>`;
+    svg += `<text x="${xPos}" y="10" text-anchor="middle" fill="${pointerColor}" font-size="9" font-family="inherit" font-weight="700">P${selectedPercentile}</text>`;
+  }
 
   const lowVal = formatDistributionDisplayValue(minVal, formatValue);
   const highVal = formatDistributionDisplayValue(maxVal, formatValue);
@@ -422,6 +430,93 @@ function renderDistribution(sorted, options = {}) {
 
 function createDistributionMetric(title, getValues, formatValue) {
   return { title, getValues, formatValue };
+}
+
+function getDistributionValues(metric) {
+  if (!metric) return [];
+  if (metric.sortedValues) return metric.sortedValues;
+  const values = (typeof metric.getValues === 'function' ? metric.getValues() : metric.values || [])
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => a - b);
+  metric.sortedValues = values;
+  return values;
+}
+
+function formatPercentileMetricValue(metric, percentileValue) {
+  const values = getDistributionValues(metric);
+  if (!values.length) return '—';
+  const formatValue = metric.formatValue || defaultDistributionFormatter;
+  return formatDistributionDisplayValue(percentile(values, percentileValue), formatValue);
+}
+
+function getWindowPercentile(win) {
+  const slider = win.querySelector('.pctl-slider');
+  const rawValue = parseInt(slider?.value ?? '50', 10);
+  return Math.max(1, Math.min(100, Number.isFinite(rawValue) ? rawValue : 50));
+}
+
+function setPercentileVisibility(win, visible) {
+  const container = win.querySelector('.pctl-slider-container');
+  if (!container) return;
+  container.classList.toggle('hidden', !visible);
+}
+
+function updatePercentileLabel(win, percentileValue) {
+  const label = win.querySelector('[data-pctl="sliderLabel"]');
+  if (label) label.textContent = `P${percentileValue}`;
+}
+
+function refreshPercentileView(win) {
+  const metricMap = metricDistributionStore.get(win);
+  const hasMetrics = Boolean(metricMap?.size);
+  setPercentileVisibility(win, hasMetrics);
+  if (!hasMetrics) return;
+
+  const percentileValue = getWindowPercentile(win);
+  const slider = win.querySelector('.pctl-slider');
+  if (slider) slider.value = String(percentileValue);
+  updatePercentileLabel(win, percentileValue);
+
+  win.querySelectorAll('[data-dist-key]').forEach((el) => {
+    const metric = metricMap.get(el.dataset.distKey);
+    if (!metric) return;
+    el.textContent = formatPercentileMetricValue(metric, percentileValue);
+  });
+
+  win.querySelectorAll('[data-dist-chart-key]').forEach((el) => {
+    const metric = metricMap.get(el.dataset.distChartKey);
+    if (!metric) return;
+    const values = getDistributionValues(metric);
+    if (!values.length) {
+      el.innerHTML = '';
+      return;
+    }
+    const formatValue = metric.formatValue || defaultDistributionFormatter;
+    el.innerHTML = renderDistribution(values, {
+      formatValue,
+      selectedPercentile: percentileValue,
+    });
+  });
+}
+
+function bindPercentileSlider(win) {
+  const slider = win.querySelector('.pctl-slider');
+  if (!slider || slider.dataset.bound === 'true') return;
+  slider.dataset.bound = 'true';
+  const sync = () => refreshPercentileView(win);
+  slider.addEventListener('input', sync);
+  slider.addEventListener('change', sync);
+  updatePercentileLabel(win, getWindowPercentile(win));
+}
+
+function getDistributionTriggerDescription(trigger) {
+  return trigger?.dataset.tip || trigger?.closest('[data-tip]')?.dataset.tip || '';
+}
+
+function openDistributionFromTrigger(win, trigger) {
+  if (!trigger) return;
+  const metric = metricDistributionStore.get(win)?.get(trigger.dataset.distKey);
+  openDistributionModal(metric, getDistributionTriggerDescription(trigger));
 }
 
 function renderDistributionSummary(sorted, formatValue) {
@@ -479,9 +574,7 @@ function ensureDistributionModal() {
 
 function openDistributionModal(metric, description = '') {
   if (!metric) return;
-  const values = (typeof metric.getValues === 'function' ? metric.getValues() : metric.values || [])
-    .filter((value) => Number.isFinite(value))
-    .sort((a, b) => a - b);
+  const values = getDistributionValues(metric);
   if (!values.length) return;
 
   hideTooltip();
@@ -781,19 +874,24 @@ function displayResults(win, results, config, sampleLog, tenPullCounts, rateUpCo
 
   html += `<h3>${tr('weaponResult.keyStats', 'Key Statistics')}</h3><div class="paid-pulls-hero">`;
   if (isCopiesMode) {
-    html += `<div class="hero-stat has-tip" data-tip="${escapeHtml(weaponTip('meanTenPulls'))}"><div class="hero-num">${avgTenPulls.toFixed(1)}</div><div class="hero-label">${tr('weaponResult.meanTenPulls', 'Mean 10-pulls')} <span class="tip-icon">?</span></div></div>`;
-    html += `<div class="hero-stat has-tip" data-tip="${escapeHtml(weaponTip('meanTickets'))}"><div class="hero-num">${Math.round(avgTickets).toLocaleString()}</div><div class="hero-label">${tr('weaponResult.meanTickets', 'Mean Tickets')} <span class="tip-icon">?</span></div></div>`;
+    const meanTenPullsMetric = addMetric('hero-mean-ten-pulls', titleOf(tr('weaponResult.keyStats', 'Key Statistics'), tr('weaponResult.meanTenPulls', 'Mean 10-pulls')), () => results.map((result) => result.tenPulls), formatFixed(1));
+    const meanTicketsMetric = addMetric('hero-mean-tickets', titleOf(tr('weaponResult.keyStats', 'Key Statistics'), tr('weaponResult.meanTickets', 'Mean Tickets')), () => results.map((result) => result.tenPulls * 1980), formatInteger);
+    html += `<div class="hero-stat has-tip" data-tip="${escapeHtml(weaponTip('meanTenPulls'))}"><div class="hero-num stat-value-clickable" data-dist-key="${meanTenPullsMetric}" tabindex="0" role="button" aria-haspopup="dialog">${avgTenPulls.toFixed(1)}</div><div class="hero-label">${tr('weaponResult.meanTenPulls', 'Mean 10-pulls')} <span class="tip-icon">?</span></div></div>`;
+    html += `<div class="hero-stat has-tip" data-tip="${escapeHtml(weaponTip('meanTickets'))}"><div class="hero-num stat-value-clickable" data-dist-key="${meanTicketsMetric}" tabindex="0" role="button" aria-haspopup="dialog">${Math.round(avgTickets).toLocaleString()}</div><div class="hero-label">${tr('weaponResult.meanTickets', 'Mean Tickets')} <span class="tip-icon">?</span></div></div>`;
   } else {
-    html += `<div class="hero-stat has-tip" data-tip="${escapeHtml(weaponTip('ticketCost'))}"><div class="hero-num">${(config.tenPulls * 1980).toLocaleString()}</div><div class="hero-label">${tr('weaponResult.ticketCost', 'Ticket Cost')} <span class="tip-icon">?</span></div></div>`;
-    html += `<div class="hero-stat has-tip" data-tip="${escapeHtml(weaponTip('meanAicQuota'))}"><div class="hero-num">${avgAic.toFixed(1)}</div><div class="hero-label">${tr('weaponResult.meanAicQuota', 'Mean AIC Quota')} <span class="tip-icon">?</span></div></div>`;
-    html += `<div class="hero-stat has-tip" data-tip="${escapeHtml(weaponTip('meanRateUpSix'))}"><div class="hero-num">${avgTotalRateUp.toFixed(2)}</div><div class="hero-label">${tr('weaponResult.meanRateUpSix', 'Mean 6★ Rate-Up')} <span class="tip-icon">?</span></div></div>`;
+    const ticketCostMetric = addMetric('hero-ticket-cost', titleOf(tr('weaponResult.keyStats', 'Key Statistics'), tr('weaponResult.ticketCost', 'Ticket Cost')), () => results.map(() => config.tenPulls * 1980), formatInteger);
+    const meanAicMetric = addMetric('hero-mean-aic', titleOf(tr('weaponResult.keyStats', 'Key Statistics'), tr('weaponResult.meanAicQuota', 'Mean AIC Quota')), () => results.map((result) => result.aicQuota), formatFixed(1));
+    const meanRateUpMetric = addMetric('hero-mean-rate-up', titleOf(tr('weaponResult.keyStats', 'Key Statistics'), tr('weaponResult.meanRateUpSix', 'Mean 6★ Rate-Up')), () => results.map((result) => result.total6StarRateUp + result.rateUpRewards), formatFixed(2));
+    html += `<div class="hero-stat has-tip" data-tip="${escapeHtml(weaponTip('ticketCost'))}"><div class="hero-num stat-value-clickable" data-dist-key="${ticketCostMetric}" tabindex="0" role="button" aria-haspopup="dialog">${(config.tenPulls * 1980).toLocaleString()}</div><div class="hero-label">${tr('weaponResult.ticketCost', 'Ticket Cost')} <span class="tip-icon">?</span></div></div>`;
+    html += `<div class="hero-stat has-tip" data-tip="${escapeHtml(weaponTip('meanAicQuota'))}"><div class="hero-num stat-value-clickable" data-dist-key="${meanAicMetric}" tabindex="0" role="button" aria-haspopup="dialog">${avgAic.toFixed(1)}</div><div class="hero-label">${tr('weaponResult.meanAicQuota', 'Mean AIC Quota')} <span class="tip-icon">?</span></div></div>`;
+    html += `<div class="hero-stat has-tip" data-tip="${escapeHtml(weaponTip('meanRateUpSix'))}"><div class="hero-num stat-value-clickable" data-dist-key="${meanRateUpMetric}" tabindex="0" role="button" aria-haspopup="dialog">${avgTotalRateUp.toFixed(2)}</div><div class="hero-label">${tr('weaponResult.meanRateUpSix', 'Mean 6★ Rate-Up')} <span class="tip-icon">?</span></div></div>`;
   }
   html += '</div>';
 
   if (isCopiesMode) {
-    const tenPullValues = results.map((result) => result.tenPulls).sort((a, b) => a - b);
+    const tenPullDistributionMetric = addMetric('ten-pull-distribution', titleOf(tr('weaponResult.tenPullDistribution', '10-Pull Distribution'), tr('weaponResult.tenPullDistribution', '10-Pull Distribution')), () => results.map((result) => result.tenPulls), formatInteger);
     html += `<h3>${tr('weaponResult.tenPullDistribution', '10-Pull Distribution')}</h3>`;
-    html += renderDistribution(tenPullValues);
+    html += `<div data-dist-chart-key="${tenPullDistributionMetric}"></div>`;
   }
 
   const fourStarLabel = tr('weaponResult.fourStarMean', '4★ mean');
@@ -844,6 +942,7 @@ function displayResults(win, results, config, sampleLog, tenPullCounts, rateUpCo
   html += renderSampleInspector(sampleLog);
   resultsContent.innerHTML = html;
   metricDistributionStore.set(win, metricMap);
+  refreshPercentileView(win);
   initBannerTabs(win);
 }
 

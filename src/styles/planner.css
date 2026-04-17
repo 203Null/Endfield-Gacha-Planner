@@ -1090,11 +1090,25 @@ input[type="checkbox"] {
 }
 
 .hero-label {
-  font-size: 10px;
+  font-size: 13px;
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 1.5px;
   margin-top: 4px;
+}
+
+.stat-value-clickable[data-pctl],
+.hero-num.stat-value-clickable[data-pctl] {
+  text-decoration: none;
+}
+
+.stat-value-clickable[data-pctl]:hover,
+.stat-value-clickable[data-pctl]:focus-visible,
+.hero-num.stat-value-clickable[data-pctl]:hover,
+.hero-num.stat-value-clickable[data-pctl]:focus-visible {
+  color: inherit;
+  text-shadow: none;
+  text-decoration: none;
 }
 
 .dist-chart {

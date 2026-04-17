@@ -417,19 +417,19 @@ function createSimWindow(opts = {}) {
   // Run button
   win.querySelector('.run-btn').addEventListener('click', () => runSimulation(win));
 
+  setPercentileVisibility(win, false);
+
   win.querySelector('.results-panel').addEventListener('click', (event) => {
-    const trigger = event.target.closest('.stat-value[data-dist-key]');
+    const trigger = event.target.closest('[data-dist-key]');
     if (!trigger) return;
-    const metric = _metricDistributionStore.get(win)?.get(trigger.dataset.distKey);
-    openDistributionModal(metric, trigger.closest('.stat-row')?.dataset.tip || '');
+    openDistributionFromTrigger(win, trigger);
   });
   win.querySelector('.results-panel').addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
-    const trigger = event.target.closest('.stat-value[data-dist-key]');
+    const trigger = event.target.closest('[data-dist-key]');
     if (!trigger) return;
     event.preventDefault();
-    const metric = _metricDistributionStore.get(win)?.get(trigger.dataset.distKey);
-    openDistributionModal(metric, trigger.closest('.stat-row')?.dataset.tip || '');
+    openDistributionFromTrigger(win, trigger);
   });
 
   applyStaticTranslations(clone);
@@ -479,6 +479,8 @@ function runSimulation(win) {
   progressText.textContent = '0%';
   resultsPlaceholder.classList.add('hidden');
   resultsContent.classList.add('hidden');
+  _metricDistributionStore.delete(win);
+  setPercentileVisibility(win, false);
 
   const worker = new Worker(new URL('./gacha-engine.worker.js', import.meta.url), { type: 'module' });
 
@@ -539,6 +541,14 @@ function mean(arr) {
   return sum / arr.length;
 }
 
+function sortNums(values) {
+  return values.slice().sort((a, b) => a - b);
+}
+
+function sortFiniteNums(values) {
+  return values.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
+}
+
 function buildHistogram(sorted, buckets) {
   if (sorted.length === 0) return [];
   const minVal = sorted[0];
@@ -585,23 +595,39 @@ function formatDistributionDisplayValue(value, formatValue, digits) {
 function renderDistribution(sorted, n, options = {}) {
   const formatValue = options.formatValue || defaultDistributionFormatter;
   const showPercentiles = options.showPercentiles ?? true;
+  const selectedPercentile = Number.isFinite(options.selectedPercentile) ? Math.max(1, Math.min(100, options.selectedPercentile)) : null;
   if (!sorted || sorted.length === 0) {
     return `<div class="dist-single">${tr('result.noData', 'No data')}</div>`;
   }
   const buckets = 30;
-  const minVal = sorted[0];
-  const maxVal = sorted[sorted.length - 1];
-  if (minVal === maxVal) {
-    return `<div class="dist-single">${formatValue(minVal)} ${tr('result.allTrialsIdentical', '')}</div>`;
+  const absMin = sorted[0];
+  const absMax = sorted[sorted.length - 1];
+  if (absMin === absMax) {
+    return `<div class="dist-single">${formatValue(absMin)} ${tr('result.allTrialsIdentical', '')}</div>`;
   }
 
+  const trimMin = percentile(sorted, 1);
+  const trimMax = percentile(sorted, 99);
+  const minVal = trimMin < trimMax ? trimMin : absMin;
+  const maxVal = trimMin < trimMax ? trimMax : absMax;
   const range = maxVal - minVal;
   const bucketSize = range / buckets;
   const counts = new Array(buckets).fill(0);
-  for (const v of sorted) {
-    let b = Math.floor((v - minVal) / bucketSize);
-    if (b >= buckets) b = buckets - 1;
-    counts[b]++;
+  let trimmedLow = 0;
+  let trimmedHigh = 0;
+
+  for (const value of sorted) {
+    if (value < minVal) {
+      trimmedLow++;
+      continue;
+    }
+    if (value > maxVal) {
+      trimmedHigh++;
+      continue;
+    }
+    let bucket = Math.floor((value - minVal) / bucketSize);
+    if (bucket >= buckets) bucket = buckets - 1;
+    counts[bucket]++;
   }
   const maxCount = Math.max(...counts);
 
@@ -640,7 +666,8 @@ function renderDistribution(sorted, n, options = {}) {
 
   // Percentile markers
   for (const pm of pVals) {
-    const xPos = padL + ((pm.val - minVal) / range) * chartW;
+    const xRaw = padL + ((pm.val - minVal) / range) * chartW;
+    const xPos = Math.max(padL, Math.min(padL + chartW, xRaw));
     // Tick line
     svg += `<line x1="${xPos}" y1="${padT}" x2="${xPos}" y2="${padT + chartH + 4}" stroke="${pm.color}" stroke-width="1" stroke-opacity="0.7" stroke-dasharray="${pm.p === 50 ? 'none' : '2,2'}"/>`;
     // Label below
@@ -648,9 +675,23 @@ function renderDistribution(sorted, n, options = {}) {
     svg += `<text x="${xPos}" y="${padT + chartH + 27}" text-anchor="middle" fill="${pm.color}" font-size="9" font-family="inherit" font-weight="600">${formatDistributionDisplayValue(pm.val, formatValue)}</text>`;
   }
 
+  if (selectedPercentile != null) {
+    const selectedValue = percentile(sorted, selectedPercentile);
+    const xRaw = padL + ((selectedValue - minVal) / range) * chartW;
+    const xPos = Math.max(padL, Math.min(padL + chartW, xRaw));
+    const pointerColor = '#c47dff';
+    svg += `<line x1="${xPos}" y1="${padT - 1}" x2="${xPos}" y2="${padT + chartH + 6}" stroke="${pointerColor}" stroke-width="1.8" stroke-opacity="0.9"/>`;
+    svg += `<polygon points="${xPos - 5},${padT - 1} ${xPos + 5},${padT - 1} ${xPos},${padT + 6}" fill="${pointerColor}" fill-opacity="0.95"/>`;
+    svg += `<text x="${xPos}" y="10" text-anchor="middle" fill="${pointerColor}" font-size="9" font-family="inherit" font-weight="700">P${selectedPercentile}</text>`;
+  }
+
   // Min/max labels at top corners
-  svg += `<text x="${padL}" y="${padT - 6}" fill="#8b8fa3" font-size="9" font-family="inherit">${formatDistributionDisplayValue(minVal, formatValue)}</text>`;
-  svg += `<text x="${W - padR}" y="${padT - 6}" text-anchor="end" fill="#8b8fa3" font-size="9" font-family="inherit">${formatDistributionDisplayValue(maxVal, formatValue)}</text>`;
+  const lowVal = formatDistributionDisplayValue(minVal, formatValue);
+  const highVal = formatDistributionDisplayValue(maxVal, formatValue);
+  const lowLabel = trimmedLow > 0 ? `${lowVal} (←${trimmedLow})` : lowVal;
+  const highLabel = trimmedHigh > 0 ? `(${trimmedHigh}→) ${highVal}` : highVal;
+  svg += `<text x="${padL}" y="${padT - 6}" fill="#8b8fa3" font-size="9" font-family="inherit">${lowLabel}</text>`;
+  svg += `<text x="${W - padR}" y="${padT - 6}" text-anchor="end" fill="#8b8fa3" font-size="9" font-family="inherit">${highLabel}</text>`;
 
   svg += `</svg>`;
   return `<div class="dist-chart">${svg}</div>`;
@@ -658,6 +699,246 @@ function renderDistribution(sorted, n, options = {}) {
 
 function createDistributionMetric(title, getValues, formatValue) {
   return { title, getValues, formatValue };
+}
+
+function getDistributionValues(metric) {
+  if (!metric) return [];
+  if (metric.sortedValues) return metric.sortedValues;
+  const values = (typeof metric.getValues === 'function' ? metric.getValues() : metric.values || [])
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => a - b);
+  metric.sortedValues = values;
+  return values;
+}
+
+function setPercentileVisibility(win, visible) {
+  const container = win.querySelector('.pctl-slider-container');
+  if (!container) return;
+  container.classList.toggle('hidden', !visible);
+}
+
+function updatePercentileLabel(win, percentileValue) {
+  const label = win.querySelector('[data-pctl="sliderLabel"]');
+  if (label) label.textContent = `P${percentileValue}`;
+}
+
+function initPercentileSlider(win, sorted, ctx) {
+  const slider = win.querySelector('.pctl-slider');
+  const sliderContainer = win.querySelector('.sticky-pctl');
+  if (!slider) return;
+
+  if (sliderContainer) sliderContainer.classList.remove('hidden');
+
+  function updatePctlValues(pctl) {
+    const pick = (key) => {
+      const values = sorted[key];
+      return values && values.length > 0 ? percentile(values, pctl) : null;
+    };
+    const fmt = (value, digits) => value == null ? '—' : value.toFixed(digits);
+    const fmtInt = (value) => value == null ? '—' : Math.round(value).toString();
+
+    const paid = pick('paid');
+    const total = pick('total');
+    const bonus30 = pick('bonus30');
+    const bonus60 = pick('bonus60');
+    const welfare = pick('welfare');
+    const fourStar = pick('fourStar');
+    const fiveStar = pick('fiveStar');
+    const rateUp = pick('rateUp');
+    const limited = pick('limited');
+    const standard = pick('standard');
+    const sixTotal = pick('sixTotal');
+    const paidPerBannerAll = pick('paidPerBannerAll');
+    const paidPerTarget = pick('paidPerBannerTarget');
+    const paidPerRateUp = pick('paidPerRateUp');
+    const pityPerTarget = pick('pityPerTarget');
+    const totalPerBannerAll = pick('totalPerBannerAll');
+    const totalPerBannerTarget = pick('totalPerBannerTarget');
+    const fourStarPerBanner = pick('fourStarPerBanner');
+    const fiveStarPerBanner = pick('fiveStarPerBanner');
+    const standardPerBanner = pick('standardPerBanner');
+    const rateUpPerBanner = pick('rateUpPerBanner');
+    const limitedPerBanner = pick('limitedPerBanner');
+    const sixTotalPerBanner = pick('sixTotalPerBanner');
+    const paidPerAnySix = pick('paidPerAnySix');
+    const arsenal4 = pick('arsenal4');
+    const arsenal5 = pick('arsenal5');
+    const arsenal6 = pick('arsenal6');
+    const arsenalTotal = pick('arsenalTotal');
+    const arsenal10pull = pick('arsenal10pull');
+    const arsenal10pullPerBanner = pick('arsenal10pullPerBanner');
+    const bondQuota = pick('bondQuota');
+    const hhTicket = pick('hhTicket');
+    const hhTicketPerBanner = pick('hhTicketPerBanner');
+    const aicQuota4 = pick('aicQuota4');
+    const aicQuota5 = pick('aicQuota5');
+    const aicQuotaTotal = pick('aicQuotaTotal');
+    const bannerHHTicket = pick('bannerHHTicket');
+    const bannerHHTicketPerBanner = pick('bannerHHTicketPerBanner');
+    const bannersSkipped = pick('bannersSkipped');
+
+    const shortfall = paidPerBannerAll == null ? null : paidPerBannerAll - ctx.welfarePulls;
+    const withMC = shortfall == null ? null : shortfall - ctx.monthlyCardPulls;
+    const withMCBundle = withMC == null ? null : withMC - ctx.bundlePulls;
+    const hardSpendCost = withMCBundle == null
+      ? null
+      : ctx.bundleCostProrated + Math.max(0, withMCBundle) * ctx.costPerPull;
+
+    const fmtShortfall = (value) => value == null ? '—' : (value > 0 ? '-' : '+') + Math.abs(value).toFixed(1) + ` ${tr('result.pullsWord', 'pulls')}`;
+    const shortfallColor = (value) => value == null ? '' : (value > 0 ? 'red' : 'green');
+
+    const set = (key, text, color) => {
+      const el = win.querySelector(`[data-pctl="${key}"]`);
+      if (!el) return;
+      el.textContent = text;
+      const classNames = [el.classList.contains('hero-num') ? 'hero-num' : 'stat-value'];
+      if (color) classNames.push(color);
+      if (el.dataset.distKey) classNames.push('stat-value-clickable');
+      el.className = classNames.join(' ');
+    };
+
+    updatePercentileLabel(win, pctl);
+
+    set('heroPityPerTarget', fmt(pityPerTarget, 1));
+    set('paidPerTarget', fmt(paidPerTarget, 1));
+    set('paidPerRateUp', fmt(paidPerRateUp, 1));
+
+    set('bannersSkipped', fmt(bannersSkipped, 1));
+
+    set('paidPulls', fmt(paid, 1));
+    set('paidPerBannerAll', fmt(paidPerBannerAll, 2));
+    set('paidPerBannerTarget', fmt(paidPerTarget, 2));
+
+    set('welfare', fmt(welfare, 1));
+    set('bonus30', fmt(bonus30, 1));
+    set('bonus60', fmt(bonus60, 1));
+
+    set('totalPulls', fmt(total, 1));
+    set('pityPerTarget', fmt(pityPerTarget, 1));
+    set('totalPerBannerAll', fmt(totalPerBannerAll, 1));
+    set('totalPerBannerTarget', fmt(totalPerBannerTarget, 1));
+
+    set('fourStar', fmt(fourStar, 2));
+    set('fourStarPerBanner', fmt(fourStarPerBanner, 2));
+    set('fiveStar', fmt(fiveStar, 2));
+    set('fiveStarPerBanner', fmt(fiveStarPerBanner, 2));
+    set('standard', fmt(standard, 2));
+    set('standardPerBanner', fmt(standardPerBanner, 2));
+    set('rateUp', fmt(rateUp, 2), 'gold');
+    set('rateUpPerBanner', fmt(rateUpPerBanner, 2), 'gold');
+    set('limited', fmt(limited, 2), 'orange');
+    set('limitedPerBanner', fmt(limitedPerBanner, 2), 'orange');
+    set('sixTotal', fmt(sixTotal, 2), 'gold');
+    set('sixTotalPerBanner', fmt(sixTotalPerBanner, 2), 'gold');
+
+    set('paidPerRateUp6', fmt(paidPerRateUp, 2), 'gold');
+    set('paidPerAnySix', fmt(paidPerAnySix, 2));
+
+    set('arsenal4', fmtInt(arsenal4));
+    set('arsenal5', fmtInt(arsenal5));
+    set('arsenal6', fmtInt(arsenal6));
+    set('arsenalTotal', fmtInt(arsenalTotal), 'green');
+    set('arsenal10pull', fmt(arsenal10pull, 2), 'green');
+    set('arsenal10pullPerBanner', fmt(arsenal10pullPerBanner, 2), 'green');
+
+    set('bondQuota', fmtInt(bondQuota));
+    set('hhTicket', fmt(hhTicket, 1));
+    set('hhTicketPerBanner', fmt(hhTicketPerBanner, 2));
+    set('aicQuota4', fmtInt(aicQuota4));
+    set('aicQuota5', fmtInt(aicQuota5));
+    set('aicQuotaTotal', fmtInt(aicQuotaTotal), 'blue');
+    set('bannerHHTicket', fmt(bannerHHTicket, 1), 'blue');
+    set('bannerHHTicketPerBanner', fmt(bannerHHTicketPerBanner, 2), 'blue');
+
+    set('shortfall', fmtShortfall(shortfall), shortfallColor(shortfall));
+    set('withMC', fmtShortfall(withMC), shortfallColor(withMC));
+    set('withMCBundle', fmtShortfall(withMCBundle), shortfallColor(withMCBundle));
+    set('hardSpendCost', hardSpendCost == null ? '—' : ctx.fmtMoney(hardSpendCost));
+
+    const shortfallRow = win.querySelector('[data-pctl="shortfall"]');
+    if (shortfallRow) {
+      const row = shortfallRow.closest('.stat-row');
+      const label = row?.querySelector('.stat-label');
+      if (label) {
+        const newLabel = shortfall > 0 ? trResultLabel('Shortfall/banner') : trResultLabel('Gain/banner');
+        label.innerHTML = `${newLabel} <span class="tip-icon">?</span>`;
+      }
+      if (row && shortfall != null) {
+        row.dataset.tip = shortfall > 0
+          ? tip('shortfall', { welfare: ctx.welfarePulls })
+          : tip('surplus', { welfare: ctx.welfarePulls, pulls: Math.abs(shortfall).toFixed(1) });
+      }
+    }
+
+    updateHistogramMarker(win, sorted.paid, pctl);
+  }
+
+  slider.value = '50';
+  slider.oninput = () => {
+    updatePctlValues(parseInt(slider.value, 10));
+  };
+  slider.onchange = slider.oninput;
+  updatePctlValues(50);
+}
+
+function updateHistogramMarker(win, paidPulls, pctl) {
+  const svg = win.querySelector('.dist-svg');
+  if (!svg || !paidPulls?.length) return;
+
+  const old = svg.querySelector('.pctl-marker-group');
+  if (old) old.remove();
+
+  const value = percentile(paidPulls, pctl);
+  const vb = svg.getAttribute('viewBox')?.split(' ').map(Number);
+  if (!vb || vb.length < 4) return;
+
+  const width = vb[2];
+  const height = vb[3];
+  const padL = 2;
+  const padR = 2;
+  const padT = 20;
+  const padB = 32;
+  const chartW = width - padL - padR;
+
+  const trimMin = percentile(paidPulls, 1);
+  const trimMax = percentile(paidPulls, 99);
+  const minVal = trimMin < trimMax ? trimMin : paidPulls[0];
+  const maxVal = trimMin < trimMax ? trimMax : paidPulls[paidPulls.length - 1];
+  const range = maxVal - minVal;
+  if (range === 0) return;
+
+  const xRaw = padL + ((value - minVal) / range) * chartW;
+  const xPos = Math.max(padL, Math.min(padL + chartW, xRaw));
+
+  const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  group.setAttribute('class', 'pctl-marker-group');
+
+  const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  line.setAttribute('x1', xPos);
+  line.setAttribute('y1', padT);
+  line.setAttribute('x2', xPos);
+  line.setAttribute('y2', padT + (height - padT - padB));
+  line.setAttribute('stroke', '#c47dff');
+  line.setAttribute('stroke-width', '2');
+  line.setAttribute('stroke-opacity', '0.9');
+  group.appendChild(line);
+
+  const triangle = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+  triangle.setAttribute('points', `${xPos - 4},${padT - 2} ${xPos + 4},${padT - 2} ${xPos},${padT + 4}`);
+  triangle.setAttribute('fill', '#c47dff');
+  group.appendChild(triangle);
+
+  svg.appendChild(group);
+}
+
+function getDistributionTriggerDescription(trigger) {
+  return trigger?.dataset.tip || trigger?.closest('[data-tip]')?.dataset.tip || '';
+}
+
+function openDistributionFromTrigger(win, trigger) {
+  if (!trigger) return;
+  const metric = _metricDistributionStore.get(win)?.get(trigger.dataset.distKey);
+  openDistributionModal(metric, getDistributionTriggerDescription(trigger));
 }
 
 function formatDistributionSummaryValue(value, formatValue, digits = 2) {
@@ -719,9 +1000,7 @@ function ensureDistributionModal() {
 
 function openDistributionModal(metric, description = '') {
   if (!metric) return;
-  const values = (typeof metric.getValues === 'function' ? metric.getValues() : metric.values || [])
-    .filter((value) => Number.isFinite(value))
-    .sort((a, b) => a - b);
+  const values = getDistributionValues(metric);
   if (!values.length) return;
   const formatValue = metric.formatValue || defaultDistributionFormatter;
 
@@ -993,47 +1272,104 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
   resultsContent.classList.remove('hidden');
 
   const n = results.length;
-  const paidPulls = results.map((result) => result.pullCount).sort((a, b) => a - b);
-  const totalPulls = results.map((result) => (
-    result.pullCount + result.bonus30PullCount + result.bonus60PullCount + result.welfarePullCount
-  )).sort((a, b) => a - b);
+  const sorted = {
+    paid: sortNums(results.map((result) => result.pullCount)),
+    bonus30: sortNums(results.map((result) => result.bonus30PullCount)),
+    bonus60: sortNums(results.map((result) => result.bonus60PullCount)),
+    welfare: sortNums(results.map((result) => result.welfarePullCount)),
+    total: sortNums(results.map((result) => (
+      result.pullCount + result.bonus30PullCount + result.bonus60PullCount + result.welfarePullCount
+    ))),
+    fourStar: sortNums(results.map((result) => result.totalFourStar)),
+    fiveStar: sortNums(results.map((result) => result.totalFiveStar)),
+    rateUp: sortNums(results.map((result) => result.totalSixStarRateUp)),
+    limited: sortNums(results.map((result) => result.totalSixStarLimited)),
+    standard: sortNums(results.map((result) => result.totalSixStarStandard)),
+    sixTotal: sortNums(results.map((result) => (
+      result.totalSixStarRateUp + result.totalSixStarLimited + result.totalSixStarStandard
+    ))),
+    bannersSkipped: sortNums(results.map((result) => result.bannersSkipped)),
+    paidPerBannerAll: sortFiniteNums(results.map((result) => (
+      result.bannersVisited > 0 ? result.pullCount / result.bannersVisited : 0
+    ))),
+    paidPerBannerTarget: sortFiniteNums(results.map((result) => {
+      const targetBanners = result.bannersVisited - result.bannersSkipped;
+      return targetBanners > 0 ? result.pullCount / targetBanners : NaN;
+    })),
+    pityPerTarget: sortFiniteNums(results.map((result) => {
+      const targetBanners = result.bannersVisited - result.bannersSkipped;
+      return targetBanners > 0 ? result.targetPullCount / targetBanners : NaN;
+    })),
+    totalPerBannerAll: sortFiniteNums(results.map((result) => {
+      const totalPulls = result.pullCount + result.bonus30PullCount + result.bonus60PullCount + result.welfarePullCount;
+      return result.bannersVisited > 0 ? totalPulls / result.bannersVisited : 0;
+    })),
+    totalPerBannerTarget: sortFiniteNums(results.map((result) => {
+      const totalPulls = result.pullCount + result.bonus30PullCount + result.bonus60PullCount + result.welfarePullCount;
+      const targetBanners = result.bannersVisited - result.bannersSkipped;
+      return targetBanners > 0 ? totalPulls / targetBanners : NaN;
+    })),
+    fourStarPerBanner: sortFiniteNums(results.map((result) => (
+      result.bannersVisited > 0 ? result.totalFourStar / result.bannersVisited : 0
+    ))),
+    fiveStarPerBanner: sortFiniteNums(results.map((result) => (
+      result.bannersVisited > 0 ? result.totalFiveStar / result.bannersVisited : 0
+    ))),
+    standardPerBanner: sortFiniteNums(results.map((result) => (
+      result.bannersVisited > 0 ? result.totalSixStarStandard / result.bannersVisited : 0
+    ))),
+    rateUpPerBanner: sortFiniteNums(results.map((result) => (
+      result.bannersVisited > 0 ? result.totalSixStarRateUp / result.bannersVisited : 0
+    ))),
+    limitedPerBanner: sortFiniteNums(results.map((result) => (
+      result.bannersVisited > 0 ? result.totalSixStarLimited / result.bannersVisited : 0
+    ))),
+    sixTotalPerBanner: sortFiniteNums(results.map((result) => {
+      const totalSix = result.totalSixStarRateUp + result.totalSixStarLimited + result.totalSixStarStandard;
+      return result.bannersVisited > 0 ? totalSix / result.bannersVisited : 0;
+    })),
+    paidPerRateUp: sortFiniteNums(results.map((result) => (
+      result.totalSixStarRateUp > 0 ? result.pullCount / result.totalSixStarRateUp : NaN
+    ))),
+    paidPerAnySix: sortFiniteNums(results.map((result) => {
+      const totalSix = result.totalSixStarRateUp + result.totalSixStarLimited + result.totalSixStarStandard;
+      return totalSix > 0 ? result.pullCount / totalSix : NaN;
+    })),
+    arsenal4: sortFiniteNums(results.map((result) => result.totalFourStar * 20)),
+    arsenal5: sortFiniteNums(results.map((result) => result.totalFiveStar * 200)),
+    arsenal6: sortFiniteNums(results.map((result) => {
+      const totalSix = result.totalSixStarRateUp + result.totalSixStarLimited + result.totalSixStarStandard;
+      return totalSix * 2000;
+    })),
+    arsenalTotal: sortFiniteNums(results.map((result) => {
+      const totalSix = result.totalSixStarRateUp + result.totalSixStarLimited + result.totalSixStarStandard;
+      return result.totalFourStar * 20 + result.totalFiveStar * 200 + totalSix * 2000;
+    })),
+    arsenal10pull: sortFiniteNums(results.map((result) => {
+      const totalSix = result.totalSixStarRateUp + result.totalSixStarLimited + result.totalSixStarStandard;
+      return (result.totalFourStar * 20 + result.totalFiveStar * 200 + totalSix * 2000) / 1980;
+    })),
+    arsenal10pullPerBanner: sortFiniteNums(results.map((result) => {
+      const totalSix = result.totalSixStarRateUp + result.totalSixStarLimited + result.totalSixStarStandard;
+      const arsenalTotal = result.totalFourStar * 20 + result.totalFiveStar * 200 + totalSix * 2000;
+      return result.bannersVisited > 0 ? arsenalTotal / 1980 / result.bannersVisited : 0;
+    })),
+    bondQuota: sortFiniteNums(results.map((result) => result.totalFiveStar * 10)),
+    hhTicket: sortFiniteNums(results.map((result) => result.totalFiveStar * 10 / 25)),
+    hhTicketPerBanner: sortFiniteNums(results.map((result) => (
+      result.bannersVisited > 0 ? (result.totalFiveStar * 10 / 25) / result.bannersVisited : 0
+    ))),
+    aicQuota4: sortFiniteNums(results.map((result) => result.totalFourStar * 5)),
+    aicQuota5: sortFiniteNums(results.map((result) => result.totalFiveStar * 20)),
+    aicQuotaTotal: sortFiniteNums(results.map((result) => result.totalFourStar * 5 + result.totalFiveStar * 20)),
+    bannerHHTicket: sortFiniteNums(results.map((result) => (result.totalFourStar * 5 + result.totalFiveStar * 20) / 70)),
+    bannerHHTicketPerBanner: sortFiniteNums(results.map((result) => (
+      result.bannersVisited > 0 ? ((result.totalFourStar * 5 + result.totalFiveStar * 20) / 70) / result.bannersVisited : 0
+    ))),
+  };
 
-  let sumPaid = 0;
-  let sumBonus30 = 0;
-  let sumBonus60 = 0;
-  let sumWelfare = 0;
-  let sumFour = 0;
-  let sumFive = 0;
-  let sumRateUp = 0;
-  let sumLimited = 0;
-  let sumStandard = 0;
-  let sumBanners = 0;
   let sumBannersSkipped = 0;
-
-  for (const result of results) {
-    sumPaid += result.pullCount;
-    sumBonus30 += result.bonus30PullCount;
-    sumBonus60 += result.bonus60PullCount;
-    sumWelfare += result.welfarePullCount;
-    sumFour += result.totalFourStar;
-    sumFive += result.totalFiveStar;
-    sumRateUp += result.totalSixStarRateUp;
-    sumLimited += result.totalSixStarLimited;
-    sumStandard += result.totalSixStarStandard;
-    sumBanners += result.bannersVisited;
-    sumBannersSkipped += result.bannersSkipped;
-  }
-
-  const totalSixStar = sumRateUp + sumLimited + sumStandard;
-  const arsenalFrom6 = totalSixStar * 2000 / n;
-  const arsenalFrom5 = sumFive * 200 / n;
-  const arsenalFrom4 = sumFour * 20 / n;
-  const arsenalTotal = arsenalFrom6 + arsenalFrom5 + arsenalFrom4;
-  const bondQuota = sumFive * 10 / n;
-  const refundTickets = bondQuota / 25;
-  const aicQuotaFrom5 = sumFive * 20 / n;
-  const aicQuotaFrom4 = sumFour * 5 / n;
-  const aicQuotaTotal = aicQuotaFrom5 + aicQuotaFrom4;
+  for (const result of results) sumBannersSkipped += result.bannersSkipped;
 
   let html = '';
 
@@ -1057,25 +1393,9 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
   const costPerPull = currency.hardSpendCost / hardSpendPulls;
   const bundleCostProrated = monthlyCardProrated + currency.bundle;
 
-  const safeBannerCount = (result) => Math.max(1, result.bannersVisited || 0);
-  const sixTotalFor = (result) => result.totalSixStarRateUp + result.totalSixStarLimited + result.totalSixStarStandard;
-  const perBannerPaidFor = (result) => result.pullCount / safeBannerCount(result);
-  const totalPullCountFor = (result) => result.pullCount + result.bonus30PullCount + result.bonus60PullCount + result.welfarePullCount;
-  const arsenalFrom4For = (result) => result.totalFourStar * 20;
-  const arsenalFrom5For = (result) => result.totalFiveStar * 200;
-  const arsenalFrom6For = (result) => sixTotalFor(result) * 2000;
-  const arsenalTotalFor = (result) => arsenalFrom4For(result) + arsenalFrom5For(result) + arsenalFrom6For(result);
-  const bondQuotaFor = (result) => result.totalFiveStar * 10;
-  const hhTicketFor = (result) => bondQuotaFor(result) / 25;
-  const aicFrom4For = (result) => result.totalFourStar * 5;
-  const aicFrom5For = (result) => result.totalFiveStar * 20;
-  const aicTotalFor = (result) => aicFrom4For(result) + aicFrom5For(result);
-  const shortfallDisplayFor = (result) => welfarePulls - perBannerPaidFor(result);
-  const withMonthlyDisplayFor = (result) => shortfallDisplayFor(result) + monthlyCardPulls;
-  const withMonthlyBundleDisplayFor = (result) => withMonthlyDisplayFor(result) + bundlePulls;
-  const hardSpendTotalCostFor = (result) => bundleCostProrated + Math.max(0, -withMonthlyBundleDisplayFor(result)) * costPerPull;
-
   const titleOf = (sectionTitle, label) => `${sectionTitle} - ${label}`;
+  const keyStatsTitle = tr('result.keyStatistics', 'Key Statistics');
+  const paidTitle = tr('result.paidPulls', 'Paid Pulls');
   const bonusTitle = tr('result.bonusPulls', 'Bonus Pulls');
   const totalTitle = tr('result.totalPulls', 'Total Pulls');
   const charactersTitle = tr('result.characters', 'Characters');
@@ -1084,9 +1404,19 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
   const quotaTitle = tr('result.quotaExchange', 'Quota Exchange');
   const moneyTitle = tr('result.money', 'Money, Money, Money');
   const metricMap = new Map();
-  const addMetric = (key, title, getValues, formatValue) => {
-    metricMap.set(key, createDistributionMetric(title, getValues, formatValue));
+  const addMetric = (key, title, values, formatValue) => {
+    metricMap.set(key, createDistributionMetric(title, () => values, formatValue));
     return key;
+  };
+  const addSortedMetric = (key, sectionTitle, label, values, formatValue) => (
+    addMetric(key, titleOf(sectionTitle, trResultLabel(label)), values, formatValue)
+  );
+  const pctlRow = (label, pctlKey, colorClass = '', tipText = '', popupKey = '') => {
+    const tooltip = tipText || tr(`detailTipLabel.${label}`, TOOLTIPS[label]);
+    const tipAttr = tooltip ? ` data-tip="${escapeHtml(tooltip)}"` : '';
+    const popupAttr = popupKey ? ` data-dist-key="${popupKey}" tabindex="0" role="button" aria-haspopup="dialog"` : '';
+    const clickableClass = popupKey ? ' stat-value-clickable' : '';
+    return `<div class="stat-row"${tipAttr}><span class="stat-label${tooltip ? ' has-tip' : ''}">${trResultLabel(label)}${tooltip ? ' <span class="tip-icon">?</span>' : ''}</span><span class="stat-value${colorClass ? ' ' + colorClass : ''}${clickableClass}" data-pctl="${pctlKey}"${popupAttr}>—</span></div>`;
   };
 
   html += `<h3>${tr('result.parameters', 'Parameters')}</h3>`;
@@ -1100,102 +1430,100 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
   if (config.startSixStarPity > 0) html += statRow('Starting 6★ Pity', config.startSixStarPity.toString(), '', false, tip('startPity6'));
   html += statRow('Banner Length', `${bannerLength} ${tr('result.days', 'days')}`);
   html += statRow('Welfare Pulls', `${welfarePulls} ${tr('result.perBanner', '/banner')}`, '', false, tip('welfareAssumed'));
+  html += statRow('Free Pulls', `${config.welfareFree} ${tr('result.perBanner', '/banner')}`, '', false, tip('freePullsAssumed'));
   html += `</div>`;
 
   const avgBannersSkipped = sumBannersSkipped / n;
   html += `<h3 class="has-tip" data-tip="${escapeHtml(tip('bannersHeading'))}">${tr('result.banners', 'Banners')} <span class="tip-icon">?</span></h3>`;
   html += `<div class="stat-grid">`;
-  html += statRow('Banners Skipped', avgBannersSkipped.toFixed(1), '', false, tip('bannersSkipped', { trials: n }));
+  html += pctlRow(
+    'Banners Skipped',
+    'bannersSkipped',
+    '',
+    tip('bannersSkipped', { trials: n }),
+    addSortedMetric('banners-skipped', tr('result.banners', 'Banners'), 'Banners Skipped', sorted.bannersSkipped, (value) => value.toFixed(1))
+  );
   html += `</div>`;
 
-  html += `<h3 class="has-tip" data-tip="${escapeHtml(tip('paidHeading'))}">${tr('result.paidPulls', 'Paid Pulls')} <span class="tip-icon">?</span></h3>`;
-  const meanPaid = mean(paidPulls);
-  const paidPerBanner = meanPaid / (sumBanners / n);
+  html += `<h3>${keyStatsTitle}</h3>`;
   html += `<div class="paid-pulls-hero">`;
-  html += `<div class="hero-stat has-tip" data-tip="${escapeHtml(tip('paidMean', { banners: config.maxBanners }))}"><div class="hero-num">${meanPaid.toFixed(0)}</div><div class="hero-label">${tr('result.meanPulls', 'mean pulls')} <span class="tip-icon">?</span></div></div>`;
-  html += `<div class="hero-stat has-tip" data-tip="${escapeHtml(tip('paidPerAll', { banners: config.maxBanners }))}"><div class="hero-num">${paidPerBanner.toFixed(2)}</div><div class="hero-label-row"><div class="hero-label">${tr('result.pullsBannerAll', 'pulls/banner<br>(all)')}</div><span class="tip-icon">?</span></div></div>`;
-  const targetBanners = config.maxBanners - avgBannersSkipped;
-  const paidPerTarget = targetBanners > 0 ? meanPaid / targetBanners : 0;
-  html += `<div class="hero-stat has-tip" data-tip="${escapeHtml(tip('paidPerTarget', { skipped: avgBannersSkipped.toFixed(1) }))}"><div class="hero-num">${paidPerTarget.toFixed(2)}</div><div class="hero-label-row"><div class="hero-label">${tr('result.pullsBannerTarget', 'pulls/banner<br>(target)')}</div><span class="tip-icon">?</span></div></div>`;
+  html += `<div class="hero-stat has-tip" data-tip="${escapeHtml(tip('heroPityPerTarget'))}"><div class="hero-num" data-pctl="heroPityPerTarget">—</div><div class="hero-label">${trResultLabel('Pity Pulls/Banner')} <span class="tip-icon">?</span></div></div>`;
+  html += `<div class="hero-stat has-tip" data-tip="${escapeHtml(tip('paidPerTarget', { skipped: avgBannersSkipped.toFixed(1) }))}"><div class="hero-num" data-pctl="paidPerTarget">—</div><div class="hero-label">${trResultLabel('Paid Pulls/Banner')} <span class="tip-icon">?</span></div></div>`;
+  html += `<div class="hero-stat has-tip" data-tip="${escapeHtml(tip('paidPerRateUp'))}"><div class="hero-num" data-pctl="paidPerRateUp">—</div><div class="hero-label">${trResultLabel('Paid Pulls/Rate-Up')} <span class="tip-icon">?</span></div></div>`;
   html += `</div>`;
-  html += renderDistribution(paidPulls, n);
+
+  html += `<h3 class="has-tip" data-tip="${escapeHtml(tip('paidHeading'))}">${paidTitle} <span class="tip-icon">?</span></h3>`;
+  html += renderDistribution(sorted.paid, n);
+  html += `<div class="stat-grid">`;
+  html += pctlRow('Paid Pulls', 'paidPulls', '', tip('paidSelected'), addSortedMetric('paid-pulls', paidTitle, 'Paid Pulls', sorted.paid, (value) => value.toFixed(1)));
+  html += pctlRow('Pulls/Banner (all)', 'paidPerBannerAll', '', tip('paidPerAll', { banners: config.maxBanners }), addSortedMetric('paid-per-banner-all', paidTitle, 'Pulls/Banner (all)', sorted.paidPerBannerAll, (value) => value.toFixed(2)));
+  html += pctlRow('Pulls/Banner (target)', 'paidPerBannerTarget', '', tip('paidPerTarget', { skipped: avgBannersSkipped.toFixed(1) }), addSortedMetric('paid-per-banner-target', paidTitle, 'Pulls/Banner (target)', sorted.paidPerBannerTarget, (value) => value.toFixed(2)));
+  html += `</div>`;
 
   html += `<h3>${bonusTitle}</h3>`;
   html += `<div class="stat-grid">`;
-  html += statRow('Banner Specific', (sumWelfare / n).toFixed(1), '', false, tip('bonusBannerSpecific'), addMetric('bonus-banner-specific', titleOf(bonusTitle, trResultLabel('Banner Specific')), () => results.map((result) => result.welfarePullCount), formatInteger));
-  html += statRow('30-pull bonus', (sumBonus30 / n).toFixed(1), '', false, tip('bonus30'), addMetric('bonus-30-pull', titleOf(bonusTitle, trResultLabel('30-pull bonus')), () => results.map((result) => result.bonus30PullCount), formatInteger));
-  html += statRow('60-pull bonus', (sumBonus60 / n).toFixed(1), '', false, tip('bonus60'), addMetric('bonus-60-pull', titleOf(bonusTitle, trResultLabel('60-pull bonus')), () => results.map((result) => result.bonus60PullCount), formatInteger));
+  html += pctlRow('Banner Specific', 'welfare', '', tip('bonusBannerSpecific'), addSortedMetric('bonus-banner-specific', bonusTitle, 'Banner Specific', sorted.welfare, (value) => value.toFixed(1)));
+  html += pctlRow('30-pull bonus', 'bonus30', '', tip('bonus30'), addSortedMetric('bonus-30-pull', bonusTitle, '30-pull bonus', sorted.bonus30, (value) => value.toFixed(1)));
+  html += pctlRow('60-pull bonus', 'bonus60', '', tip('bonus60'), addSortedMetric('bonus-60-pull', bonusTitle, '60-pull bonus', sorted.bonus60, (value) => value.toFixed(1)));
   html += `</div>`;
 
-  const meanTotal = mean(totalPulls);
-  const totalPerBanner = meanTotal / (sumBanners / n);
   html += `<h3>${totalTitle}</h3>`;
   html += `<div class="stat-grid">`;
-  html += statRow('Mean', meanTotal.toFixed(1), '', false, tip('totalMean', { banners: config.maxBanners }), addMetric('total-pulls-mean', titleOf(totalTitle, trResultLabel('Mean')), () => results.map(totalPullCountFor), formatInteger));
-  html += statRow('Pulls/Banner', totalPerBanner.toFixed(1), '', false, tip('totalPerBanner'), addMetric('total-pulls-banner', titleOf(totalTitle, trResultLabel('Pulls/Banner')), () => results.map((result) => totalPullCountFor(result) / safeBannerCount(result)), formatFixed(2)));
+  html += pctlRow('Total', 'totalPulls', '', tip('totalMean', { banners: config.maxBanners }), addSortedMetric('total-pulls', totalTitle, 'Total', sorted.total, (value) => value.toFixed(1)));
+  html += pctlRow('Pity Pulls/Banner (target)', 'pityPerTarget', '', tip('pityPerTarget'), addSortedMetric('total-pity-target', totalTitle, 'Pity Pulls/Banner (target)', sorted.pityPerTarget, (value) => value.toFixed(1)));
+  html += pctlRow('Total Pulls/Banner (all)', 'totalPerBannerAll', '', tip('totalPerBanner'), addSortedMetric('total-per-banner-all', totalTitle, 'Total Pulls/Banner (all)', sorted.totalPerBannerAll, (value) => value.toFixed(1)));
+  html += pctlRow('Total Pulls/Banner (target)', 'totalPerBannerTarget', '', tip('totalPerBannerTarget'), addSortedMetric('total-per-banner-target', totalTitle, 'Total Pulls/Banner (target)', sorted.totalPerBannerTarget, (value) => value.toFixed(1)));
   html += `</div>`;
 
-  const avgBanners = sumBanners / n;
-  const avgFour = sumFour / n;
-  const avgFive = sumFive / n;
-  const avgRateUp = sumRateUp / n;
-  const avgLimited = sumLimited / n;
-  const avgStandard = sumStandard / n;
-  const avgSixTotal = avgRateUp + avgLimited + avgStandard;
   html += `<h3>${charactersTitle}</h3>`;
   html += `<div class="stat-grid">`;
-  html += statRow('4★', avgFour.toFixed(2), '', false, tip('fourTotal', { banners: config.maxBanners }), addMetric('characters-four', titleOf(charactersTitle, trResultLabel('4★')), () => results.map((result) => result.totalFourStar), formatInteger));
-  html += statRow('4★ /banner', (avgFour / avgBanners).toFixed(2), '', false, tip('fourPerBanner'), addMetric('characters-four-banner', titleOf(charactersTitle, trResultLabel('4★ /banner')), () => results.map((result) => result.totalFourStar / safeBannerCount(result)), formatFixed(2)));
-  html += statRow('5★', avgFive.toFixed(2), 'blue', false, tip('fiveTotal', { banners: config.maxBanners }), addMetric('characters-five', titleOf(charactersTitle, trResultLabel('5★')), () => results.map((result) => result.totalFiveStar), formatInteger));
-  html += statRow('5★ /banner', (avgFive / avgBanners).toFixed(2), 'blue', false, tip('fivePerBanner'), addMetric('characters-five-banner', titleOf(charactersTitle, trResultLabel('5★ /banner')), () => results.map((result) => result.totalFiveStar / safeBannerCount(result)), formatFixed(2)));
-  html += statRow('6★ standard', avgStandard.toFixed(2), 'purple', false, tip('sixStandard'), addMetric('characters-six-standard', titleOf(charactersTitle, trResultLabel('6★ standard')), () => results.map((result) => result.totalSixStarStandard), formatInteger));
-  html += statRow('6★ standard/banner', (avgStandard / avgBanners).toFixed(2), 'purple', false, tip('sixStandardPerBanner'), addMetric('characters-six-standard-banner', titleOf(charactersTitle, trResultLabel('6★ standard/banner')), () => results.map((result) => result.totalSixStarStandard / safeBannerCount(result)), formatFixed(2)));
-  html += statRow('6★ rate-up', avgRateUp.toFixed(2), 'gold', false, tip('sixRateUp', { banners: config.maxBanners }), addMetric('characters-six-rateup', titleOf(charactersTitle, trResultLabel('6★ rate-up')), () => results.map((result) => result.totalSixStarRateUp), formatInteger));
-  html += statRow('6★ rate-up/banner', (avgRateUp / avgBanners).toFixed(2), 'gold', false, tip('sixRateUpPerBanner'), addMetric('characters-six-rateup-banner', titleOf(charactersTitle, trResultLabel('6★ rate-up/banner')), () => results.map((result) => result.totalSixStarRateUp / safeBannerCount(result)), formatFixed(2)));
-  html += statRow('6★ limited', avgLimited.toFixed(2), 'orange', false, tip('sixLimited'), addMetric('characters-six-limited', titleOf(charactersTitle, trResultLabel('6★ limited')), () => results.map((result) => result.totalSixStarLimited), formatInteger));
-  html += statRow('6★ limited/banner', (avgLimited / avgBanners).toFixed(2), 'orange', false, tip('sixLimitedPerBanner'), addMetric('characters-six-limited-banner', titleOf(charactersTitle, trResultLabel('6★ limited/banner')), () => results.map((result) => result.totalSixStarLimited / safeBannerCount(result)), formatFixed(2)));
-  html += statRow('6★ total', avgSixTotal.toFixed(2), 'gold', false, tip('sixTotal', { banners: config.maxBanners }), addMetric('characters-six-total', titleOf(charactersTitle, trResultLabel('6★ total')), () => results.map((result) => sixTotalFor(result)), formatInteger));
-  html += statRow('6★ total/banner', (avgSixTotal / avgBanners).toFixed(2), 'gold', false, tip('sixTotalPerBanner'), addMetric('characters-six-total-banner', titleOf(charactersTitle, trResultLabel('6★ total/banner')), () => results.map((result) => sixTotalFor(result) / safeBannerCount(result)), formatFixed(2)));
+  html += pctlRow('4★', 'fourStar', '', tip('fourTotal', { banners: config.maxBanners }), addSortedMetric('characters-four', charactersTitle, '4★', sorted.fourStar, (value) => value.toFixed(2)));
+  html += pctlRow('4★ /banner', 'fourStarPerBanner', '', tip('fourPerBanner'), addSortedMetric('characters-four-banner', charactersTitle, '4★ /banner', sorted.fourStarPerBanner, (value) => value.toFixed(2)));
+  html += pctlRow('5★', 'fiveStar', 'blue', tip('fiveTotal', { banners: config.maxBanners }), addSortedMetric('characters-five', charactersTitle, '5★', sorted.fiveStar, (value) => value.toFixed(2)));
+  html += pctlRow('5★ /banner', 'fiveStarPerBanner', 'blue', tip('fivePerBanner'), addSortedMetric('characters-five-banner', charactersTitle, '5★ /banner', sorted.fiveStarPerBanner, (value) => value.toFixed(2)));
+  html += pctlRow('6★ standard', 'standard', 'purple', tip('sixStandard'), addSortedMetric('characters-six-standard', charactersTitle, '6★ standard', sorted.standard, (value) => value.toFixed(2)));
+  html += pctlRow('6★ standard/banner', 'standardPerBanner', 'purple', tip('sixStandardPerBanner'), addSortedMetric('characters-six-standard-banner', charactersTitle, '6★ standard/banner', sorted.standardPerBanner, (value) => value.toFixed(2)));
+  html += pctlRow('6★ rate-up', 'rateUp', 'gold', tip('sixRateUp', { banners: config.maxBanners }), addSortedMetric('characters-six-rateup', charactersTitle, '6★ rate-up', sorted.rateUp, (value) => value.toFixed(2)));
+  html += pctlRow('6★ rate-up/banner', 'rateUpPerBanner', 'gold', tip('sixRateUpPerBanner'), addSortedMetric('characters-six-rateup-banner', charactersTitle, '6★ rate-up/banner', sorted.rateUpPerBanner, (value) => value.toFixed(2)));
+  html += pctlRow('6★ limited', 'limited', 'orange', tip('sixLimited'), addSortedMetric('characters-six-limited', charactersTitle, '6★ limited', sorted.limited, (value) => value.toFixed(2)));
+  html += pctlRow('6★ limited/banner', 'limitedPerBanner', 'orange', tip('sixLimitedPerBanner'), addSortedMetric('characters-six-limited-banner', charactersTitle, '6★ limited/banner', sorted.limitedPerBanner, (value) => value.toFixed(2)));
+  html += pctlRow('6★ total', 'sixTotal', 'gold', tip('sixTotal', { banners: config.maxBanners }), addSortedMetric('characters-six-total', charactersTitle, '6★ total', sorted.sixTotal, (value) => value.toFixed(2)));
+  html += pctlRow('6★ total/banner', 'sixTotalPerBanner', 'gold', tip('sixTotalPerBanner'), addSortedMetric('characters-six-total-banner', charactersTitle, '6★ total/banner', sorted.sixTotalPerBanner, (value) => value.toFixed(2)));
   html += `</div>`;
 
   html += `<h3>${pullsPerSixTitle}</h3>`;
   html += `<div class="stat-grid">`;
-  if (sumRateUp > 0) html += statRow('Paid / rate-up', (sumPaid / sumRateUp).toFixed(2), 'gold', false, tip('paidPerRateUp'), addMetric('pulls-per-rateup', titleOf(pullsPerSixTitle, trResultLabel('Paid / rate-up')), () => results.map((result) => (result.totalSixStarRateUp > 0 ? result.pullCount / result.totalSixStarRateUp : NaN)), formatFixed(2)));
-  if (totalSixStar > 0) html += statRow('Paid / any 6★', (sumPaid / totalSixStar).toFixed(2), '', false, tip('paidPerAnySix'), addMetric('pulls-per-any-six', titleOf(pullsPerSixTitle, trResultLabel('Paid / any 6★')), () => results.map((result) => (sixTotalFor(result) > 0 ? result.pullCount / sixTotalFor(result) : NaN)), formatFixed(2)));
+  html += pctlRow('Paid / rate-up', 'paidPerRateUp6', 'gold', tip('paidPerRateUp'), addSortedMetric('pulls-per-rateup', pullsPerSixTitle, 'Paid / rate-up', sorted.paidPerRateUp, (value) => value.toFixed(2)));
+  html += pctlRow('Paid / any 6★', 'paidPerAnySix', '', tip('paidPerAnySix'), addSortedMetric('pulls-per-any-six', pullsPerSixTitle, 'Paid / any 6★', sorted.paidPerAnySix, (value) => value.toFixed(2)));
   html += `</div>`;
 
   html += `<h3>${arsenalTitle}</h3>`;
   html += `<div class="stat-grid">`;
-  html += statRow('From 4★', Math.round(arsenalFrom4), '', false, tip('arsenalFrom4'), addMetric('arsenal-from4', titleOf(arsenalTitle, trResultLabel('From 4★')), () => results.map(arsenalFrom4For), formatInteger)) + '<div></div>';
-  html += statRow('From 5★', Math.round(arsenalFrom5), '', false, tip('arsenalFrom5'), addMetric('arsenal-from5', titleOf(arsenalTitle, trResultLabel('From 5★')), () => results.map(arsenalFrom5For), formatInteger)) + '<div></div>';
-  html += statRow('From 6★', Math.round(arsenalFrom6), '', false, tip('arsenalFrom6'), addMetric('arsenal-from6', titleOf(arsenalTitle, trResultLabel('From 6★')), () => results.map(arsenalFrom6For), formatInteger)) + '<div></div>';
-  html += statRow('Total', Math.round(arsenalTotal), 'green', false, tip('arsenalTotal', { banners: config.maxBanners }), addMetric('arsenal-total', titleOf(arsenalTitle, trResultLabel('Total')), () => results.map(arsenalTotalFor), formatInteger));
-  html += statRow('→ Arsenal 10-pull', (arsenalTotal / 1980).toFixed(2), 'green', false, tip('arsenalTenPull'), addMetric('arsenal-tenpull', titleOf(arsenalTitle, trResultLabel('→ Arsenal 10-pull')), () => results.map((result) => arsenalTotalFor(result) / 1980), formatFixed(2)));
+  html += pctlRow('From 4★', 'arsenal4', '', tip('arsenalFrom4'), addSortedMetric('arsenal-from4', arsenalTitle, 'From 4★', sorted.arsenal4, (value) => Math.round(value).toLocaleString())) + '<div></div>';
+  html += pctlRow('From 5★', 'arsenal5', '', tip('arsenalFrom5'), addSortedMetric('arsenal-from5', arsenalTitle, 'From 5★', sorted.arsenal5, (value) => Math.round(value).toLocaleString())) + '<div></div>';
+  html += pctlRow('From 6★', 'arsenal6', '', tip('arsenalFrom6'), addSortedMetric('arsenal-from6', arsenalTitle, 'From 6★', sorted.arsenal6, (value) => Math.round(value).toLocaleString())) + '<div></div>';
+  html += pctlRow('Total', 'arsenalTotal', 'green', tip('arsenalTotal', { banners: config.maxBanners }), addSortedMetric('arsenal-total', arsenalTitle, 'Total', sorted.arsenalTotal, (value) => Math.round(value).toLocaleString()));
+  html += pctlRow('→ Arsenal 10-pull', 'arsenal10pull', 'green', tip('arsenalTenPull'), addSortedMetric('arsenal-tenpull', arsenalTitle, '→ Arsenal 10-pull', sorted.arsenal10pull, (value) => value.toFixed(2)));
   html += `<div></div>`;
-  html += statRow('→ Arsenal 10-pull/banner', (arsenalTotal / 1980 / avgBanners).toFixed(2), 'green', false, tip('arsenalTenPullPerBanner'), addMetric('arsenal-tenpull-banner', titleOf(arsenalTitle, trResultLabel('→ Arsenal 10-pull/banner')), () => results.map((result) => arsenalTotalFor(result) / 1980 / safeBannerCount(result)), formatFixed(2)));
+  html += pctlRow('→ Arsenal 10-pull/banner', 'arsenal10pullPerBanner', 'green', tip('arsenalTenPullPerBanner'), addSortedMetric('arsenal-tenpull-banner', arsenalTitle, '→ Arsenal 10-pull/banner', sorted.arsenal10pullPerBanner, (value) => value.toFixed(2)));
   html += `</div>`;
 
   html += `<h3>${quotaTitle}</h3>`;
   html += `<div class="stat-grid">`;
-  html += statRow('Bond Quota', bondQuota.toFixed(0), '', false, tip('bondQuota'), addMetric('quota-bond', titleOf(quotaTitle, trResultLabel('Bond Quota')), () => results.map(bondQuotaFor), formatInteger));
-  html += statRow('→ HH Ticket', refundTickets.toFixed(1), '', false, undefined, addMetric('quota-hh-ticket', titleOf(quotaTitle, trResultLabel('→ HH Ticket')), () => results.map(hhTicketFor), formatFixed(1)));
+  html += pctlRow('Bond Quota', 'bondQuota', '', tip('bondQuota'), addSortedMetric('quota-bond', quotaTitle, 'Bond Quota', sorted.bondQuota, (value) => Math.round(value).toLocaleString()));
+  html += pctlRow('→ HH Ticket', 'hhTicket', '', undefined, addSortedMetric('quota-hh-ticket', quotaTitle, '→ HH Ticket', sorted.hhTicket, (value) => value.toFixed(1)));
   html += `<div></div>`;
-  html += statRow('→ HH Ticket/banner', (refundTickets / avgBanners).toFixed(2), '', false, undefined, addMetric('quota-hh-ticket-banner', titleOf(quotaTitle, trResultLabel('→ HH Ticket/banner')), () => results.map((result) => hhTicketFor(result) / safeBannerCount(result)), formatFixed(2)));
+  html += pctlRow('→ HH Ticket/banner', 'hhTicketPerBanner', '', undefined, addSortedMetric('quota-hh-ticket-banner', quotaTitle, '→ HH Ticket/banner', sorted.hhTicketPerBanner, (value) => value.toFixed(2)));
   html += `<div></div><div></div>`;
-  html += statRow('AIC Quota from 4★', aicQuotaFrom4.toFixed(0), '', false, tip('aicFrom4'), addMetric('quota-aic4', titleOf(quotaTitle, trResultLabel('AIC Quota from 4★')), () => results.map(aicFrom4For), formatInteger));
+  html += pctlRow('AIC Quota from 4★', 'aicQuota4', '', tip('aicFrom4'), addSortedMetric('quota-aic4', quotaTitle, 'AIC Quota from 4★', sorted.aicQuota4, (value) => Math.round(value).toLocaleString()));
   html += `<div></div>`;
-  html += statRow('AIC Quota from 5★', aicQuotaFrom5.toFixed(0), '', false, tip('aicFrom5'), addMetric('quota-aic5', titleOf(quotaTitle, trResultLabel('AIC Quota from 5★')), () => results.map(aicFrom5For), formatInteger));
+  html += pctlRow('AIC Quota from 5★', 'aicQuota5', '', tip('aicFrom5'), addSortedMetric('quota-aic5', quotaTitle, 'AIC Quota from 5★', sorted.aicQuota5, (value) => Math.round(value).toLocaleString()));
   html += `<div></div>`;
-  const bannerHHTickets = aicQuotaTotal / 70;
-  html += statRow('AIC Quota', aicQuotaTotal.toFixed(0), 'blue', false, tip('aicTotal', { banners: config.maxBanners }), addMetric('quota-aic-total', titleOf(quotaTitle, trResultLabel('AIC Quota')), () => results.map(aicTotalFor), formatInteger));
-  html += statRow('→ Banner HH Ticket', bannerHHTickets.toFixed(1), 'blue', false, tip('bannerHHTicket'), addMetric('quota-banner-hh', titleOf(quotaTitle, trResultLabel('→ Banner HH Ticket')), () => results.map((result) => aicTotalFor(result) / 70), formatFixed(1)));
+  html += pctlRow('AIC Quota', 'aicQuotaTotal', 'blue', tip('aicTotal', { banners: config.maxBanners }), addSortedMetric('quota-aic-total', quotaTitle, 'AIC Quota', sorted.aicQuotaTotal, (value) => Math.round(value).toLocaleString()));
+  html += pctlRow('→ Banner HH Ticket', 'bannerHHTicket', 'blue', tip('bannerHHTicket'), addSortedMetric('quota-banner-hh', quotaTitle, '→ Banner HH Ticket', sorted.bannerHHTicket, (value) => value.toFixed(1)));
   html += `<div></div>`;
-  html += statRow('→ Banner HH Ticket/banner', (bannerHHTickets / avgBanners).toFixed(2), 'blue', false, tip('bannerHHTicketPerBanner'), addMetric('quota-banner-hh-banner', titleOf(quotaTitle, trResultLabel('→ Banner HH Ticket/banner')), () => results.map((result) => aicTotalFor(result) / 70 / safeBannerCount(result)), formatFixed(2)));
+  html += pctlRow('→ Banner HH Ticket/banner', 'bannerHHTicketPerBanner', 'blue', tip('bannerHHTicketPerBanner'), addSortedMetric('quota-banner-hh-banner', quotaTitle, '→ Banner HH Ticket/banner', sorted.bannerHHTicketPerBanner, (value) => value.toFixed(2)));
   html += `</div>`;
-
-  const shortfall = paidPerBanner - welfarePulls;
-  const withMonthly = shortfall - monthlyCardPulls;
-  const withMonthlyBundle = withMonthly - bundlePulls;
 
   html += `<h3>${moneyTitle}</h3>`;
   const mcCostPerPull = monthlyCardProrated / monthlyCardPulls;
@@ -1229,23 +1557,15 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
       orbsPerPull: ORBS_PER_PULL,
     }));
   html += `<div class="stat-grid">`;
-  const fmtShortfall = (value) => (value > 0 ? '-' : '+') + Math.abs(value).toFixed(1) + ` ${pullsWord}`;
-  const formatShortfallValue = (value) => `${value >= 0 ? '+' : '-'}${Math.abs(value).toFixed(1)} ${pullsWord}`;
-  const shortfallColor = (value) => (value > 0 ? 'red' : 'green');
-  const shortfallLabel = shortfall > 0 ? 'Shortfall/banner' : 'Gain/banner';
-  const shortfallTip = shortfall > 0
-    ? tip('shortfall', { welfare: welfarePulls })
-    : tip('surplus', { welfare: welfarePulls, pulls: Math.abs(shortfall).toFixed(1) });
-  html += statRow(shortfallLabel, fmtShortfall(shortfall), shortfallColor(shortfall), false, shortfallTip, addMetric('money-shortfall', titleOf(moneyTitle, trResultLabel(shortfallLabel)), () => results.map(shortfallDisplayFor), formatShortfallValue));
+  html += `<div class="stat-row" data-tip="${escapeHtml(tip('shortfall', { welfare: welfarePulls }))}"><span class="stat-label has-tip">${trResultLabel('Shortfall/banner')} <span class="tip-icon">?</span></span><span class="stat-value" data-pctl="shortfall">—</span></div>`;
   html += `<div></div>`;
   const costLabel = tr('result.costPerDays', 'Cost/{days} days').replace('{days}', bannerLength);
-  html += statRow('w/ MC', fmtShortfall(withMonthly), shortfallColor(withMonthly), false, tip('withMc'), addMetric('money-mc', titleOf(moneyTitle, trResultLabel('w/ MC')), () => results.map(withMonthlyDisplayFor), formatShortfallValue));
-  html += statRow(costLabel, fmtMoney(monthlyCardProrated), '', false, tip('costPerPeriod'), addMetric('money-mc-cost', titleOf(moneyTitle, `${trResultLabel('w/ MC')} - ${costLabel}`), () => results.map(() => monthlyCardProrated), fmtMoney));
-  html += statRow('w/ MC, Bundle', fmtShortfall(withMonthlyBundle), shortfallColor(withMonthlyBundle), false, tip('withMcBundle'), addMetric('money-mc-bundle', titleOf(moneyTitle, trResultLabel('w/ MC, Bundle')), () => results.map(withMonthlyBundleDisplayFor), formatShortfallValue));
-  html += statRow(costLabel, fmtMoney(bundleCostProrated), '', false, tip('costPerPeriod'), addMetric('money-mc-bundle-cost', titleOf(moneyTitle, `${trResultLabel('w/ MC, Bundle')} - ${costLabel}`), () => results.map(() => bundleCostProrated), fmtMoney));
-  const hardSpendTotalCost = bundleCostProrated + Math.max(0, withMonthlyBundle) * costPerPull;
+  html += `<div class="stat-row" data-tip="${escapeHtml(tip('withMc'))}"><span class="stat-label has-tip">${trResultLabel('w/ MC')} <span class="tip-icon">?</span></span><span class="stat-value" data-pctl="withMC">—</span></div>`;
+  html += statRow(costLabel, fmtMoney(monthlyCardProrated), '', false, tip('costPerPeriod'));
+  html += `<div class="stat-row" data-tip="${escapeHtml(tip('withMcBundle'))}"><span class="stat-label has-tip">${trResultLabel('w/ MC, Bundle')} <span class="tip-icon">?</span></span><span class="stat-value" data-pctl="withMCBundle">—</span></div>`;
+  html += statRow(costLabel, fmtMoney(bundleCostProrated), '', false, tip('costPerPeriod'));
   html += statRow('w/ MC, Bundle, Hard Spend', '---', 'green');
-  html += statRow(costLabel, fmtMoney(hardSpendTotalCost), '', false, tip('costPerPeriod'), addMetric('money-hard-spend-cost', titleOf(moneyTitle, `${trResultLabel('w/ MC, Bundle, Hard Spend')} - ${costLabel}`), () => results.map(hardSpendTotalCostFor), fmtMoney));
+  html += `<div class="stat-row" data-tip="${escapeHtml(tip('costPerPeriod'))}"><span class="stat-label has-tip">${costLabel} <span class="tip-icon">?</span></span><span class="stat-value" data-pctl="hardSpendCost">—</span></div>`;
   html += `</div>`;
 
   html += `<h3>${tr('result.pullDistribution', 'Pull Distribution')}</h3>`;
@@ -1256,6 +1576,14 @@ function displayResults(win, results, config, sampleBannerLogs, terminationCount
   resultsContent.innerHTML = html;
   initBannerTabs(win);
   initPullDistTabs(win);
+  initPercentileSlider(win, sorted, {
+    welfarePulls,
+    monthlyCardPulls,
+    bundlePulls,
+    bundleCostProrated,
+    costPerPull,
+    fmtMoney,
+  });
 }
 
 function packRow(label, items, tipText) {

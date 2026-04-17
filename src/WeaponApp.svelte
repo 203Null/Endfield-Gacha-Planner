@@ -88,6 +88,12 @@
         </div>
       </div>
 
+      <div class="pctl-slider-container sticky-pctl has-tip hidden" data-i18n-tip="ui.percentileViewTip">
+        <div class="pctl-label"><span data-i18n="ui.percentileView">Percentile View</span> <span class="tip-icon">?</span><span data-pctl="sliderLabel">P50</span></div>
+        <input type="range" class="pctl-slider" min="1" max="100" value="50" step="1" aria-label="Percentile View" />
+        <div class="pctl-ticks"><span>P1</span><span>P25</span><span>P50</span><span>P75</span><span>P100</span></div>
+      </div>
+
       <div class="results-panel">
         <div class="results-placeholder" data-i18n="ui.runPlaceholder">Run a simulation to see results</div>
         <div class="results-content hidden"></div>

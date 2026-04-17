@@ -270,7 +270,7 @@
         </div>
       </div>
 
-      <div class="pctl-slider-container sticky-pctl has-tip hidden" data-tip="Per-statistic percentile view. Each displayed stat shows its own PXX value from that stat's distribution only. Values across different stats do not necessarily come from the same simulated trial.">
+      <div class="pctl-slider-container sticky-pctl has-tip hidden" data-i18n-tip="ui.percentileViewTip">
         <div class="pctl-label"><span data-i18n="ui.percentileView">Percentile View</span> <span class="tip-icon">?</span><span data-pctl="sliderLabel">P50</span></div>
         <input type="range" class="pctl-slider" min="1" max="100" value="50" step="1" aria-label="Percentile View" />
         <div class="pctl-ticks"><span>P1</span><span>P25</span><span>P50</span><span>P75</span><span>P100</span></div>
