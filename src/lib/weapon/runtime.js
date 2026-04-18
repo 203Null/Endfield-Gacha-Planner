@@ -1189,18 +1189,18 @@ function displayResults(win, results, config, sampleLog, tenPullCounts, rateUpCo
   const nonRateUpLabel = tr('weaponResult.nonRateUpMean', '6★ non-rate-up mean');
   const total6Label = tr('weaponResult.total6Mean', '6★ total mean');
   html += `<h3>${weaponsTitle}</h3><div class="stat-grid">`;
-  html += statRow(fourStarLabel, avg4.toFixed(2), '', false, weaponTip('avg4'), addMetric('weapon-four-star', titleOf(weaponsTitle, fourStarLabel), () => results.map((result) => result.total4Star), formatInteger));
-  html += statRow(fiveStarLabel, avg5.toFixed(2), 'blue', false, weaponTip('avg5'), addMetric('weapon-five-star', titleOf(weaponsTitle, fiveStarLabel), () => results.map((result) => result.total5Star), formatInteger));
-  html += statRow(rateUpLabel, avgRateUp.toFixed(2), 'gold', false, weaponTip('avgRateUp'), addMetric('weapon-rate-up', titleOf(weaponsTitle, rateUpLabel), () => results.map((result) => result.total6StarRateUp), formatInteger));
-  html += statRow(nonRateUpLabel, avgNonRateUp.toFixed(2), 'purple', false, weaponTip('avgNonRateUp'), addMetric('weapon-non-rate-up', titleOf(weaponsTitle, nonRateUpLabel), () => results.map((result) => result.total6StarNonRateUp), formatInteger));
-  html += statRow(total6Label, avgTotal6.toFixed(2), 'gold', false, weaponTip('avgTotal6'), addMetric('weapon-total-six', titleOf(weaponsTitle, total6Label), () => results.map(total6For), formatInteger));
+  html += statRow(fourStarLabel, avg4.toFixed(2), '', false, weaponTip('avg4'), addMetric('weapon-four-star', titleOf(weaponsTitle, fourStarLabel), () => results.map((result) => result.total4Star), formatFixed(2)));
+  html += statRow(fiveStarLabel, avg5.toFixed(2), 'blue', false, weaponTip('avg5'), addMetric('weapon-five-star', titleOf(weaponsTitle, fiveStarLabel), () => results.map((result) => result.total5Star), formatFixed(2)));
+  html += statRow(rateUpLabel, avgRateUp.toFixed(2), 'gold', false, weaponTip('avgRateUp'), addMetric('weapon-rate-up', titleOf(weaponsTitle, rateUpLabel), () => results.map((result) => result.total6StarRateUp), formatFixed(2)));
+  html += statRow(nonRateUpLabel, avgNonRateUp.toFixed(2), 'purple', false, weaponTip('avgNonRateUp'), addMetric('weapon-non-rate-up', titleOf(weaponsTitle, nonRateUpLabel), () => results.map((result) => result.total6StarNonRateUp), formatFixed(2)));
+  html += statRow(total6Label, avgTotal6.toFixed(2), 'gold', false, weaponTip('avgTotal6'), addMetric('weapon-total-six', titleOf(weaponsTitle, total6Label), () => results.map(total6For), formatFixed(2)));
   html += '</div>';
 
   const selectorsLabel = tr('weaponResult.selectorsMean', '6★ Selectors mean');
   const rateUpRewardsLabel = tr('weaponResult.rateUpRewardsMean', '6★ Rate-Up Rewards mean');
   html += `<h3>${milestonesTitle}</h3><div class="stat-grid">`;
-  html += statRow(selectorsLabel, avgSelectors.toFixed(2), 'blue', false, weaponTip('avgSelectors'), addMetric('milestones-selector', titleOf(milestonesTitle, selectorsLabel), () => results.map((result) => result.selectorRewards), formatInteger));
-  html += statRow(rateUpRewardsLabel, avgRateUpRewards.toFixed(2), 'gold', false, weaponTip('avgRateUpRewards'), addMetric('milestones-rate-up', titleOf(milestonesTitle, rateUpRewardsLabel), () => results.map((result) => result.rateUpRewards), formatInteger));
+  html += statRow(selectorsLabel, avgSelectors.toFixed(2), 'blue', false, weaponTip('avgSelectors'), addMetric('milestones-selector', titleOf(milestonesTitle, selectorsLabel), () => results.map((result) => result.selectorRewards), formatFixed(2)));
+  html += statRow(rateUpRewardsLabel, avgRateUpRewards.toFixed(2), 'gold', false, weaponTip('avgRateUpRewards'), addMetric('milestones-rate-up', titleOf(milestonesTitle, rateUpRewardsLabel), () => results.map((result) => result.rateUpRewards), formatFixed(2)));
   html += '</div>';
 
   const guarantee40Label = tr('weaponResult.guarantee40Label', '40-pull guarantee triggered');
@@ -1214,9 +1214,9 @@ function displayResults(win, results, config, sampleLog, tenPullCounts, rateUpCo
   const from6Label = tr('weaponResult.from6', 'From 6★');
   const totalLabel = tr('weaponResult.total', 'Total');
   html += `<h3>${aicTitle}</h3><div class="stat-grid">`;
-  html += statRow(from5Label, aicFrom5.toFixed(1), '', false, weaponTip('aicFrom5'), addMetric('aic-from5', titleOf(aicTitle, from5Label), () => results.map(aicFrom5For), formatInteger));
-  html += statRow(from6Label, aicFrom6.toFixed(1), '', false, weaponTip('aicFrom6'), addMetric('aic-from6', titleOf(aicTitle, from6Label), () => results.map(aicFrom6For), formatInteger));
-  html += statRow(totalLabel, avgAic.toFixed(1), 'blue', false, weaponTip('aicTotal'), addMetric('aic-total', titleOf(aicTitle, totalLabel), () => results.map((result) => result.aicQuota), formatInteger));
+  html += statRow(from5Label, aicFrom5.toFixed(1), '', false, weaponTip('aicFrom5'), addMetric('aic-from5', titleOf(aicTitle, from5Label), () => results.map(aicFrom5For), formatFixed(1)));
+  html += statRow(from6Label, aicFrom6.toFixed(1), '', false, weaponTip('aicFrom6'), addMetric('aic-from6', titleOf(aicTitle, from6Label), () => results.map(aicFrom6For), formatFixed(1)));
+  html += statRow(totalLabel, avgAic.toFixed(1), 'blue', false, weaponTip('aicTotal'), addMetric('aic-total', titleOf(aicTitle, totalLabel), () => results.map((result) => result.aicQuota), formatFixed(1)));
   html += '</div>';
 
   const chartId = pullChartIdCounter++;
