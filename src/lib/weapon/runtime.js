@@ -9,6 +9,7 @@ let tooltipEl = null;
 let mouseEnterHandler = null;
 let mouseLeaveHandler = null;
 let distributionModalEl = null;
+let modalState = null;
 const metricDistributionStore = new WeakMap();
 
 const FOUR_STAR = 0;
@@ -719,7 +720,7 @@ function getDistributionTriggerDescription(trigger) {
 function openDistributionFromTrigger(win, trigger) {
   if (!trigger) return;
   const metric = metricDistributionStore.get(win)?.get(trigger.dataset.distKey);
-  openDistributionModal(metric, getDistributionTriggerDescription(trigger));
+  openDistributionModal(metric, getDistributionTriggerDescription(trigger), getWindowDistributionState(win));
 }
 
 function renderDistributionSummary(sorted, formatValue) {
@@ -754,23 +755,95 @@ function ensureDistributionModal() {
         <button class="modal-close" title="${escapeHtml(t('ui.close'))}">×</button>
       </div>
       <div class="modal-body distribution-modal-body">
+        <div class="dist-modal-pctl">
+          <div class="dist-modal-pctl-header">
+            <div class="pctl-mode-toggle" role="group" aria-label="Distribution Mode">
+              <button type="button" class="pctl-mode-btn active" data-modal-pctl-mode="average" data-i18n="ui.distributionModeAverage">Average</button>
+              <button type="button" class="pctl-mode-btn" data-modal-pctl-mode="percentile" data-i18n="ui.distributionModePercentile">Percentile</button>
+            </div>
+            <span class="dist-modal-pctl-badge">AVG P0-P100</span>
+          </div>
+          <div class="dist-modal-panel" data-modal-panel="average">
+            <div class="pctl-dual-track">
+              <input type="range" class="pctl-slider dist-modal-range-start" min="0" max="100" value="0" step="1" aria-label="Average Range Start" />
+              <input type="range" class="pctl-slider dist-modal-range-end" min="0" max="100" value="100" step="1" aria-label="Average Range End" />
+            </div>
+            <div class="pctl-ticks"><span>P0</span><span>P25</span><span>P50</span><span>P75</span><span>P100</span></div>
+          </div>
+          <div class="dist-modal-panel hidden" data-modal-panel="percentile">
+            <input type="range" class="pctl-slider dist-modal-slider" min="1" max="100" value="50" step="1" aria-label="Percentile View" />
+            <div class="pctl-ticks"><span>P1</span><span>P25</span><span>P50</span><span>P75</span><span>P100</span></div>
+          </div>
+        </div>
         <div class="distribution-modal-chart"></div>
         <div class="distribution-modal-summary"></div>
       </div>
     </div>
   `;
-  modal.querySelector('.modal-close').addEventListener('click', () => {
-    modal.classList.add('hidden');
+  modal.querySelector('.modal-close').addEventListener('click', () => { modal.classList.add('hidden'); });
+  modal.addEventListener('click', (event) => { if (event.target === modal) modal.classList.add('hidden'); });
+
+  const badge = modal.querySelector('.dist-modal-pctl-badge');
+  const rangeStartSlider = modal.querySelector('.dist-modal-range-start');
+  const rangeEndSlider = modal.querySelector('.dist-modal-range-end');
+  const pctlSlider = modal.querySelector('.dist-modal-slider');
+
+  function modalBadge() {
+    if (!modalState) return;
+    badge.textContent = modalState.mode === 'percentile'
+      ? `P${modalState.pctlVal}`
+      : `${tr('ui.distributionModeAverage', 'AVG')} P${modalState.rangeStart}-P${modalState.rangeEnd}`;
+  }
+  function modalRender() {
+    if (!modalState) return;
+    const chartEl = modal.querySelector('.distribution-modal-chart');
+    const opts = { formatValue: modalState.formatValue };
+    if (modalState.mode === 'percentile') opts.selectedPercentile = modalState.pctlVal;
+    else opts.selectedRange = { start: modalState.rangeStart, end: modalState.rangeEnd };
+    chartEl.innerHTML = renderDistribution(modalState.sorted, opts);
+  }
+
+  modal.querySelectorAll('[data-modal-pctl-mode]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.modalPctlMode;
+      if (!modalState || modalState.mode === mode) return;
+      modalState.mode = mode;
+      modal.querySelectorAll('[data-modal-pctl-mode]').forEach((b) => b.classList.toggle('active', b === btn));
+      modal.querySelectorAll('[data-modal-panel]').forEach((p) => p.classList.toggle('hidden', p.dataset.modalPanel !== mode));
+      modalBadge();
+      modalRender();
+    });
   });
-  modal.addEventListener('click', (event) => {
-    if (event.target === modal) modal.classList.add('hidden');
+  rangeStartSlider.addEventListener('input', () => {
+    if (!modalState) return;
+    let rs = clampPercentileValue(rangeStartSlider.value, 0, 100, 0);
+    let re = clampPercentileValue(rangeEndSlider.value, 0, 100, 100);
+    if (rs > re) re = rs;
+    modalState.rangeStart = rs; modalState.rangeEnd = re;
+    rangeStartSlider.value = String(rs); rangeEndSlider.value = String(re);
+    modalBadge(); modalRender();
   });
+  rangeEndSlider.addEventListener('input', () => {
+    if (!modalState) return;
+    let rs = clampPercentileValue(rangeStartSlider.value, 0, 100, 0);
+    let re = clampPercentileValue(rangeEndSlider.value, 0, 100, 100);
+    if (re < rs) rs = re;
+    modalState.rangeStart = rs; modalState.rangeEnd = re;
+    rangeStartSlider.value = String(rs); rangeEndSlider.value = String(re);
+    modalBadge(); modalRender();
+  });
+  pctlSlider.addEventListener('input', () => {
+    if (!modalState) return;
+    modalState.pctlVal = clampPercentileValue(pctlSlider.value, 1, 100, 50);
+    modalBadge(); modalRender();
+  });
+
   document.body.appendChild(modal);
   distributionModalEl = modal;
   return modal;
 }
 
-function openDistributionModal(metric, description = '') {
+function openDistributionModal(metric, description = '', initialState = null) {
   if (!metric) return;
   const values = getDistributionValues(metric);
   if (!values.length) return;
@@ -778,12 +851,30 @@ function openDistributionModal(metric, description = '') {
   hideTooltip();
   const formatValue = metric.formatValue || defaultDistributionFormatter;
   const modal = ensureDistributionModal();
+  const mode = initialState?.mode ?? 'average';
+  const pctlVal = initialState?.percentileValue ?? 50;
+  const rangeStart = initialState?.rangeStart ?? 0;
+  const rangeEnd = initialState?.rangeEnd ?? 100;
+  modalState = { sorted: values, formatValue, mode, pctlVal, rangeStart, rangeEnd };
+
+  modal.querySelectorAll('[data-modal-pctl-mode]').forEach((b) => b.classList.toggle('active', b.dataset.modalPctlMode === mode));
+  modal.querySelectorAll('[data-modal-panel]').forEach((p) => p.classList.toggle('hidden', p.dataset.modalPanel !== mode));
+  modal.querySelector('.dist-modal-range-start').value = String(rangeStart);
+  modal.querySelector('.dist-modal-range-end').value = String(rangeEnd);
+  modal.querySelector('.dist-modal-slider').value = String(pctlVal);
+  modal.querySelector('.dist-modal-pctl-badge').textContent = mode === 'percentile'
+    ? `P${pctlVal}`
+    : `${tr('ui.distributionModeAverage', 'AVG')} P${rangeStart}-P${rangeEnd}`;
+
   modal.querySelector('.modal-header h2').textContent = metric.title;
   modal.querySelector('.modal-close').setAttribute('title', t('ui.close'));
   const noteEl = modal.querySelector('.distribution-modal-note');
   noteEl.textContent = description;
   noteEl.classList.toggle('hidden', !description);
-  modal.querySelector('.distribution-modal-chart').innerHTML = renderDistribution(values, { formatValue });
+  modal.querySelector('.distribution-modal-chart').innerHTML = renderDistribution(values, {
+    formatValue,
+    ...(mode === 'percentile' ? { selectedPercentile: pctlVal } : { selectedRange: { start: rangeStart, end: rangeEnd } }),
+  });
   modal.querySelector('.distribution-modal-summary').innerHTML = renderDistributionSummary(values, formatValue);
   modal.classList.remove('hidden');
 }

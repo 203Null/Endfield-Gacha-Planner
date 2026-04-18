@@ -1641,6 +1641,40 @@ input[type="checkbox"] {
   gap: 12px;
 }
 
+/* ── In-modal percentile slider ── */
+.dist-modal-pctl {
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+}
+
+.dist-modal-pctl-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dist-modal-panel.hidden {
+  display: none;
+}
+
+.dist-modal-pctl-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(126, 184, 255, 0.1);
+  border: 1px solid rgba(126, 184, 255, 0.2);
+  color: #7eb8ff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  min-width: 36px;
+  text-align: center;
+}
+
 .distribution-modal-summary {
   width: 100%;
 }
@@ -1953,7 +1987,8 @@ input[type="checkbox"] {
   background: transparent;
 }
 
-.pctl-dual-track .pctl-range-start {
+.pctl-dual-track .pctl-range-start,
+.pctl-dual-track .dist-modal-range-start {
   background: linear-gradient(to right, #3a7bd5, #6ec6ff 50%, #f7b731);
 }
 
