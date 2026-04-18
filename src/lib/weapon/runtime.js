@@ -70,6 +70,27 @@ function mean(values) {
   return sum / values.length;
 }
 
+function computeDistributionStats(values) {
+  const avg = mean(values);
+  const variance = values.reduce((sum, value) => {
+    const delta = value - avg;
+    return sum + delta * delta;
+  }, 0) / values.length;
+  return {
+    mean: avg,
+    variance,
+    stdDev: Math.sqrt(variance),
+  };
+}
+
+function normalPdf(value, meanValue, stdDev) {
+  if (!Number.isFinite(value) || !Number.isFinite(meanValue) || !Number.isFinite(stdDev) || stdDev <= 0) {
+    return 0;
+  }
+  const z = (value - meanValue) / stdDev;
+  return Math.exp(-0.5 * z * z) / (stdDev * Math.sqrt(2 * Math.PI));
+}
+
 function defaultDistributionFormatter(value) {
   if (!Number.isFinite(value)) return '—';
   if (Math.abs(value - Math.round(value)) < 1e-9) return Math.round(value).toLocaleString();
@@ -337,6 +358,7 @@ function runSimulation(win) {
 
 function renderDistribution(sorted, options = {}) {
   const formatValue = options.formatValue || defaultDistributionFormatter;
+  const showStdCurve = options.showStdCurve ?? true;
   const selectedPercentile = Number.isFinite(options.selectedPercentile) ? Math.max(1, Math.min(100, options.selectedPercentile)) : null;
   const buckets = 30;
   const absMin = sorted[0];
@@ -370,6 +392,8 @@ function renderDistribution(sorted, options = {}) {
   });
 
   const maxCount = Math.max(...counts);
+  const includedCount = sorted.length - trimmedLow - trimmedHigh;
+  const stats = computeDistributionStats(sorted);
   const percentileMarkers = [
     { p: 5, label: 'P5', color: '#4caf50' },
     { p: 25, label: 'P25', color: '#8aa4ff' },
@@ -388,15 +412,43 @@ function renderDistribution(sorted, options = {}) {
   const chartH = H - padT - padB;
   const barW = chartW / buckets;
 
+  let stdCurvePath = '';
+  let yScaleMax = maxCount;
+  if (showStdCurve && stats.stdDev > 0 && Number.isFinite(stats.stdDev)) {
+    const curveSteps = 96;
+    const curvePoints = [];
+    let curvePeak = 0;
+
+    for (let i = 0; i <= curveSteps; i++) {
+      const ratio = i / curveSteps;
+      const value = minVal + ratio * range;
+      const expectedCount = normalPdf(value, stats.mean, stats.stdDev) * bucketSize * includedCount;
+      curvePeak = Math.max(curvePeak, expectedCount);
+      curvePoints.push({ ratio, expectedCount });
+    }
+
+    yScaleMax = Math.max(yScaleMax, curvePeak);
+    stdCurvePath = curvePoints.map((point, index) => {
+      const x = padL + point.ratio * chartW;
+      const y = padT + chartH - (point.expectedCount / yScaleMax) * chartH;
+      return `${index === 0 ? 'M' : 'L'}${x},${y}`;
+    }).join(' ');
+  }
+
   let svg = `<svg class="dist-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">`;
   for (let i = 0; i < buckets; i++) {
-    const barH = maxCount > 0 ? (counts[i] / maxCount) * chartH : 0;
+    const barH = yScaleMax > 0 ? (counts[i] / yScaleMax) * chartH : 0;
     const x = padL + i * barW;
     const y = padT + chartH - barH;
     const intensity = maxCount > 0 ? counts[i] / maxCount : 0;
     const r = Math.round(108 + intensity * 30);
     const g = Math.round(140 + intensity * 24);
-    svg += `<rect x="${x}" y="${y}" width="${Math.max(barW - 1, 1)}" height="${barH}" rx="1" fill="rgb(${r},${g},255)" fill-opacity="${0.35 + intensity * 0.65}"/>`;
+    const b = Math.round(255);
+    svg += `<rect x="${x}" y="${y}" width="${Math.max(barW - 1, 1)}" height="${barH}" rx="1" fill="rgb(${r},${g},${b})" fill-opacity="${0.35 + intensity * 0.65}"/>`;
+  }
+
+  if (stdCurvePath) {
+    svg += `<path d="${stdCurvePath}" fill="none" stroke="#dfe5ff" stroke-width="1.8" stroke-opacity="0.88" stroke-dasharray="6 4"/>`;
   }
 
   percentileMarkers.forEach((marker) => {
@@ -520,16 +572,11 @@ function openDistributionFromTrigger(win, trigger) {
 }
 
 function renderDistributionSummary(sorted, formatValue) {
-  const avg = mean(sorted);
+  const distributionStats = computeDistributionStats(sorted);
   const median = percentile(sorted, 50);
-  const variance = sorted.reduce((sum, value) => {
-    const delta = value - avg;
-    return sum + delta * delta;
-  }, 0) / sorted.length;
-  const stdDev = Math.sqrt(variance);
   const stats = [
-    [tr('result.distMean', 'Mean'), formatDistributionSummaryValue(avg, formatValue)],
-    [tr('result.distStdDev', 'Std Dev'), formatDistributionSummaryValue(stdDev, formatValue)],
+    [tr('result.distMean', 'Mean'), formatDistributionSummaryValue(distributionStats.mean, formatValue)],
+    [tr('result.distStdDev', 'Std Dev'), formatDistributionSummaryValue(distributionStats.stdDev, formatValue)],
     [tr('result.distMedian', 'Median'), formatDistributionSummaryValue(median, formatValue)],
     [tr('result.distMin', 'Min'), formatDistributionDisplayValue(sorted[0], formatValue)],
     [tr('result.distMax', 'Max'), formatDistributionDisplayValue(sorted[sorted.length - 1], formatValue)],
@@ -955,7 +1002,7 @@ function ensureTooltip() {
 }
 
 function showTooltip(target) {
-  const icon = target.closest('.tip-icon');
+  const icon = target?.closest?.('.tip-icon');
   if (!icon) return;
   const tip = icon.closest('[data-tip]');
   if (!tip) return;
