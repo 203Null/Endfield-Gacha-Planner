@@ -360,6 +360,9 @@ function renderDistribution(sorted, options = {}) {
   const formatValue = options.formatValue || defaultDistributionFormatter;
   const showStdCurve = options.showStdCurve ?? true;
   const selectedPercentile = Number.isFinite(options.selectedPercentile) ? Math.max(1, Math.min(100, options.selectedPercentile)) : null;
+  const selectedRange = options.selectedRange && Number.isFinite(options.selectedRange.start) && Number.isFinite(options.selectedRange.end)
+    ? normalizePercentileRange(options.selectedRange.start, options.selectedRange.end)
+    : null;
   const buckets = 30;
   const absMin = sorted[0];
   const absMax = sorted[sorted.length - 1];
@@ -459,6 +462,25 @@ function renderDistribution(sorted, options = {}) {
     svg += `<text x="${xPos}" y="${padT + chartH + 27}" text-anchor="middle" fill="${marker.color}" font-size="9" font-family="inherit" font-weight="600">${formatDistributionDisplayValue(marker.val, formatValue)}</text>`;
   });
 
+  if (selectedRange && !(selectedRange.rangeStart <= 0 && selectedRange.rangeEnd >= 100)) {
+    const rangeColor = '#9fd0ff';
+    const startValue = percentile(sorted, selectedRange.rangeStart);
+    const endValue = percentile(sorted, selectedRange.rangeEnd);
+    const startX = Math.max(padL, Math.min(padL + chartW, padL + ((startValue - minVal) / range) * chartW));
+    const endX = Math.max(padL, Math.min(padL + chartW, padL + ((endValue - minVal) / range) * chartW));
+    const leftX = Math.min(startX, endX);
+    const rightX = Math.max(startX, endX);
+
+    if (rightX - leftX > 1) {
+      svg += `<rect x="${leftX}" y="${padT}" width="${rightX - leftX}" height="${chartH}" fill="${rangeColor}" fill-opacity="0.14"/>`;
+    }
+
+    [startX, endX].forEach((xPos, index) => {
+      if (index === 1 && Math.abs(endX - startX) < 0.5) return;
+      svg += `<line x1="${xPos}" y1="${padT}" x2="${xPos}" y2="${padT + chartH}" stroke="${rangeColor}" stroke-width="1.6" stroke-opacity="0.85" stroke-dasharray="4 3"/>`;
+    });
+  }
+
   if (selectedPercentile != null) {
     const selectedValue = percentile(sorted, selectedPercentile);
     const xRaw = padL + ((selectedValue - minVal) / range) * chartW;
@@ -494,17 +516,80 @@ function getDistributionValues(metric) {
   return values;
 }
 
-function formatPercentileMetricValue(metric, percentileValue) {
+function clampPercentileValue(value, min, max, fallback) {
+  const numericValue = Number.parseInt(value, 10);
+  if (!Number.isFinite(numericValue)) return fallback;
+  return Math.max(min, Math.min(max, numericValue));
+}
+
+function normalizePercentileRange(start, end) {
+  const rangeStart = clampPercentileValue(start, 0, 100, 0);
+  const rangeEnd = clampPercentileValue(end, 0, 100, 100);
+  return {
+    rangeStart: Math.min(rangeStart, rangeEnd),
+    rangeEnd: Math.max(rangeStart, rangeEnd),
+  };
+}
+
+function getPercentileRangeBounds(length, start, end) {
+  if (!length) return null;
+  const { rangeStart, rangeEnd } = normalizePercentileRange(start, end);
+  const startIndex = rangeStart <= 0 ? 0 : Math.ceil((rangeStart / 100) * length) - 1;
+  const endIndex = rangeEnd >= 100 ? length - 1 : Math.ceil((rangeEnd / 100) * length) - 1;
+  return {
+    rangeStart,
+    rangeEnd,
+    startIndex: Math.max(0, Math.min(length - 1, startIndex)),
+    endIndex: Math.max(0, Math.min(length - 1, Math.max(startIndex, endIndex))),
+  };
+}
+
+function averagePercentileRange(sorted, start, end) {
+  const bounds = getPercentileRangeBounds(sorted?.length || 0, start, end);
+  if (!bounds) return null;
+  let sum = 0;
+  for (let index = bounds.startIndex; index <= bounds.endIndex; index++) {
+    sum += sorted[index];
+  }
+  return sum / (bounds.endIndex - bounds.startIndex + 1);
+}
+
+function formatDistributionMetricValue(metric, state) {
   const values = getDistributionValues(metric);
   if (!values.length) return '—';
   const formatValue = metric.formatValue || defaultDistributionFormatter;
-  return formatDistributionDisplayValue(percentile(values, percentileValue), formatValue);
+  const selectedValue = state.mode === 'percentile'
+    ? percentile(values, state.percentileValue)
+    : averagePercentileRange(values, state.rangeStart, state.rangeEnd);
+  return formatDistributionDisplayValue(selectedValue, formatValue);
 }
 
-function getWindowPercentile(win) {
-  const slider = win.querySelector('.pctl-slider');
-  const rawValue = parseInt(slider?.value ?? '50', 10);
-  return Math.max(1, Math.min(100, Number.isFinite(rawValue) ? rawValue : 50));
+function syncAverageRangeInputs(win, changedEdge) {
+  const startSlider = win.querySelector('.pctl-range-start');
+  const endSlider = win.querySelector('.pctl-range-end');
+  if (!startSlider || !endSlider) return { rangeStart: 0, rangeEnd: 100 };
+
+  let rangeStart = clampPercentileValue(startSlider.value, 0, 100, 0);
+  let rangeEnd = clampPercentileValue(endSlider.value, 0, 100, 100);
+  if (changedEdge === 'start' && rangeStart > rangeEnd) rangeEnd = rangeStart;
+  if (changedEdge === 'end' && rangeEnd < rangeStart) rangeStart = rangeEnd;
+
+  const normalized = normalizePercentileRange(rangeStart, rangeEnd);
+  startSlider.value = String(normalized.rangeStart);
+  endSlider.value = String(normalized.rangeEnd);
+  return normalized;
+}
+
+function getWindowDistributionState(win) {
+  const container = win.querySelector('.pctl-slider-container');
+  const percentileSlider = win.querySelector('.pctl-single-slider');
+  const { rangeStart, rangeEnd } = syncAverageRangeInputs(win);
+  return {
+    mode: container?.dataset.mode === 'percentile' ? 'percentile' : 'average',
+    percentileValue: clampPercentileValue(percentileSlider?.value, 1, 100, 50),
+    rangeStart,
+    rangeEnd,
+  };
 }
 
 function setPercentileVisibility(win, visible) {
@@ -513,9 +598,31 @@ function setPercentileVisibility(win, visible) {
   container.classList.toggle('hidden', !visible);
 }
 
-function updatePercentileLabel(win, percentileValue) {
-  const label = win.querySelector('[data-pctl="sliderLabel"]');
-  if (label) label.textContent = `P${percentileValue}`;
+function setDistributionMode(win, mode) {
+  const container = win.querySelector('.pctl-slider-container');
+  if (!container) return;
+
+  const nextMode = mode === 'percentile' ? 'percentile' : 'average';
+  container.dataset.mode = nextMode;
+  container.querySelectorAll('[data-pctl-mode]').forEach((button) => {
+    const active = button.dataset.pctlMode === nextMode;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+  container.querySelectorAll('[data-pctl-panel]').forEach((panel) => {
+    panel.classList.toggle('hidden', panel.dataset.pctlPanel !== nextMode);
+  });
+}
+
+function updateDistributionLabels(win, state) {
+  const summaryLabel = win.querySelector('[data-pctl="sliderLabel"]');
+  if (summaryLabel) {
+    summaryLabel.textContent = state.mode === 'percentile'
+      ? `P${state.percentileValue}`
+      : `${tr('ui.distributionModeAverage', 'Average')} P${state.rangeStart}-P${state.rangeEnd}`;
+  }
+
+
 }
 
 function refreshPercentileView(win) {
@@ -524,15 +631,15 @@ function refreshPercentileView(win) {
   setPercentileVisibility(win, hasMetrics);
   if (!hasMetrics) return;
 
-  const percentileValue = getWindowPercentile(win);
-  const slider = win.querySelector('.pctl-slider');
-  if (slider) slider.value = String(percentileValue);
-  updatePercentileLabel(win, percentileValue);
+  const state = getWindowDistributionState(win);
+  const percentileSlider = win.querySelector('.pctl-single-slider');
+  if (percentileSlider) percentileSlider.value = String(state.percentileValue);
+  updateDistributionLabels(win, state);
 
   win.querySelectorAll('[data-dist-key]').forEach((el) => {
     const metric = metricMap.get(el.dataset.distKey);
     if (!metric) return;
-    el.textContent = formatPercentileMetricValue(metric, percentileValue);
+    el.textContent = formatDistributionMetricValue(metric, state);
   });
 
   win.querySelectorAll('[data-dist-chart-key]').forEach((el) => {
@@ -546,19 +653,58 @@ function refreshPercentileView(win) {
     const formatValue = metric.formatValue || defaultDistributionFormatter;
     el.innerHTML = renderDistribution(values, {
       formatValue,
-      selectedPercentile: percentileValue,
+      selectedPercentile: state.mode === 'percentile' ? state.percentileValue : null,
+      selectedRange: state.mode === 'average'
+        ? { start: state.rangeStart, end: state.rangeEnd }
+        : null,
     });
   });
 }
 
 function bindPercentileSlider(win) {
-  const slider = win.querySelector('.pctl-slider');
-  if (!slider || slider.dataset.bound === 'true') return;
-  slider.dataset.bound = 'true';
+  const container = win.querySelector('.pctl-slider-container');
+  const percentileSlider = win.querySelector('.pctl-single-slider');
+  const rangeStartSlider = win.querySelector('.pctl-range-start');
+  const rangeEndSlider = win.querySelector('.pctl-range-end');
+  if (!container || !percentileSlider || !rangeStartSlider || !rangeEndSlider || container.dataset.bound === 'true') return;
+
+  container.dataset.bound = 'true';
+  if (container.dataset.mode !== 'percentile' && container.dataset.mode !== 'average') {
+    container.dataset.mode = 'average';
+  }
+  if (!percentileSlider.value) percentileSlider.value = '50';
+  if (!rangeStartSlider.value) rangeStartSlider.value = '0';
+  if (!rangeEndSlider.value) rangeEndSlider.value = '100';
+  syncAverageRangeInputs(win);
+  setDistributionMode(win, container.dataset.mode);
+
   const sync = () => refreshPercentileView(win);
-  slider.addEventListener('input', sync);
-  slider.addEventListener('change', sync);
-  updatePercentileLabel(win, getWindowPercentile(win));
+  percentileSlider.addEventListener('input', sync);
+  percentileSlider.addEventListener('change', sync);
+  rangeStartSlider.addEventListener('input', () => {
+    syncAverageRangeInputs(win, 'start');
+    sync();
+  });
+  rangeStartSlider.addEventListener('change', () => {
+    syncAverageRangeInputs(win, 'start');
+    sync();
+  });
+  rangeEndSlider.addEventListener('input', () => {
+    syncAverageRangeInputs(win, 'end');
+    sync();
+  });
+  rangeEndSlider.addEventListener('change', () => {
+    syncAverageRangeInputs(win, 'end');
+    sync();
+  });
+  container.querySelectorAll('[data-pctl-mode]').forEach((button) => {
+    button.addEventListener('click', () => {
+      setDistributionMode(win, button.dataset.pctlMode);
+      sync();
+    });
+  });
+
+  updateDistributionLabels(win, getWindowDistributionState(win));
 }
 
 function getDistributionTriggerDescription(trigger) {

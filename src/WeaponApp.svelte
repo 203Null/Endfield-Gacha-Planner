@@ -88,10 +88,25 @@
         </div>
       </div>
 
-      <div class="pctl-slider-container sticky-pctl has-tip hidden" data-i18n-tip="ui.percentileViewTip">
-        <div class="pctl-label"><span data-i18n="ui.percentileView">Percentile View</span> <span class="tip-icon">?</span><span data-pctl="sliderLabel">P50</span></div>
-        <input type="range" class="pctl-slider" min="1" max="100" value="50" step="1" aria-label="Percentile View" />
-        <div class="pctl-ticks"><span>P1</span><span>P25</span><span>P50</span><span>P75</span><span>P100</span></div>
+      <div class="pctl-slider-container sticky-pctl has-tip hidden" data-i18n-tip="ui.distributionViewTip">
+        <div class="pctl-header">
+          <div class="pctl-mode-toggle" role="group" aria-label="Distribution Mode">
+            <button type="button" class="pctl-mode-btn active" data-pctl-mode="average" data-i18n="ui.distributionModeAverage">Average</button>
+            <button type="button" class="pctl-mode-btn" data-pctl-mode="percentile" data-i18n="ui.distributionModePercentile">Percentile</button>
+          </div>
+          <div class="pctl-label"><span data-i18n="ui.distributionView">Distribution View</span> <span class="tip-icon">?</span><span data-pctl="sliderLabel">AVG P0-P100</span></div>
+        </div>
+        <div class="pctl-panel" data-pctl-panel="average">
+          <div class="pctl-dual-track">
+            <input type="range" class="pctl-slider pctl-range-start" min="0" max="100" value="0" step="1" aria-label="Average Range Start" />
+            <input type="range" class="pctl-slider pctl-range-end" min="0" max="100" value="100" step="1" aria-label="Average Range End" />
+          </div>
+          <div class="pctl-ticks"><span>P0</span><span>P25</span><span>P50</span><span>P75</span><span>P100</span></div>
+        </div>
+        <div class="pctl-panel hidden" data-pctl-panel="percentile">
+          <input type="range" class="pctl-slider pctl-single-slider" min="1" max="100" value="50" step="1" aria-label="Percentile View" />
+          <div class="pctl-ticks"><span>P1</span><span>P25</span><span>P50</span><span>P75</span><span>P100</span></div>
+        </div>
       </div>
 
       <div class="results-panel">

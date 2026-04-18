@@ -768,25 +768,135 @@ function setPercentileVisibility(win, visible) {
   container.classList.toggle('hidden', !visible);
 }
 
-function updatePercentileLabel(win, percentileValue) {
-  const label = win.querySelector('[data-pctl="sliderLabel"]');
-  if (label) label.textContent = `P${percentileValue}`;
+function clampPercentileValue(value, min, max, fallback) {
+  const numericValue = Number.parseInt(value, 10);
+  if (!Number.isFinite(numericValue)) return fallback;
+  return Math.max(min, Math.min(max, numericValue));
+}
+
+function normalizePercentileRange(start, end) {
+  const rangeStart = clampPercentileValue(start, 0, 100, 0);
+  const rangeEnd = clampPercentileValue(end, 0, 100, 100);
+  return {
+    rangeStart: Math.min(rangeStart, rangeEnd),
+    rangeEnd: Math.max(rangeStart, rangeEnd),
+  };
+}
+
+function getPercentileRangeBounds(length, start, end) {
+  if (!length) return null;
+  const { rangeStart, rangeEnd } = normalizePercentileRange(start, end);
+  const startIndex = rangeStart <= 0 ? 0 : Math.ceil((rangeStart / 100) * length) - 1;
+  const endIndex = rangeEnd >= 100 ? length - 1 : Math.ceil((rangeEnd / 100) * length) - 1;
+  return {
+    rangeStart,
+    rangeEnd,
+    startIndex: Math.max(0, Math.min(length - 1, startIndex)),
+    endIndex: Math.max(0, Math.min(length - 1, Math.max(startIndex, endIndex))),
+  };
+}
+
+function averagePercentileRange(sorted, start, end) {
+  const bounds = getPercentileRangeBounds(sorted?.length || 0, start, end);
+  if (!bounds) return null;
+  let sum = 0;
+  for (let index = bounds.startIndex; index <= bounds.endIndex; index++) {
+    sum += sorted[index];
+  }
+  return sum / (bounds.endIndex - bounds.startIndex + 1);
+}
+
+function getWindowDistributionMode(win) {
+  const container = win.querySelector('.pctl-slider-container');
+  return container?.dataset.mode === 'percentile' ? 'percentile' : 'average';
+}
+
+function setDistributionMode(win, mode) {
+  const container = win.querySelector('.pctl-slider-container');
+  if (!container) return;
+
+  const nextMode = mode === 'percentile' ? 'percentile' : 'average';
+  container.dataset.mode = nextMode;
+  container.querySelectorAll('[data-pctl-mode]').forEach((button) => {
+    const active = button.dataset.pctlMode === nextMode;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+  container.querySelectorAll('[data-pctl-panel]').forEach((panel) => {
+    panel.classList.toggle('hidden', panel.dataset.pctlPanel !== nextMode);
+  });
+}
+
+function syncAverageRangeInputs(win, changedEdge) {
+  const startSlider = win.querySelector('.pctl-range-start');
+  const endSlider = win.querySelector('.pctl-range-end');
+  if (!startSlider || !endSlider) return { rangeStart: 0, rangeEnd: 100 };
+
+  let rangeStart = clampPercentileValue(startSlider.value, 0, 100, 0);
+  let rangeEnd = clampPercentileValue(endSlider.value, 0, 100, 100);
+  if (changedEdge === 'start' && rangeStart > rangeEnd) rangeEnd = rangeStart;
+  if (changedEdge === 'end' && rangeEnd < rangeStart) rangeStart = rangeEnd;
+
+  const normalized = normalizePercentileRange(rangeStart, rangeEnd);
+  startSlider.value = String(normalized.rangeStart);
+  endSlider.value = String(normalized.rangeEnd);
+  return normalized;
+}
+
+function getDistributionState(win) {
+  const percentileSlider = win.querySelector('.pctl-single-slider');
+  const { rangeStart, rangeEnd } = syncAverageRangeInputs(win);
+  return {
+    mode: getWindowDistributionMode(win),
+    percentileValue: clampPercentileValue(percentileSlider?.value, 1, 100, 50),
+    rangeStart,
+    rangeEnd,
+  };
+}
+
+function updateDistributionLabels(win, state) {
+  const summaryLabel = win.querySelector('[data-pctl="sliderLabel"]');
+  if (summaryLabel) {
+    summaryLabel.textContent = state.mode === 'percentile'
+      ? `P${state.percentileValue}`
+      : `${tr('ui.distributionModeAverage', 'Average')} P${state.rangeStart}-P${state.rangeEnd}`;
+  }
+
+
+}
+
+function getDistributionMetricValue(values, state) {
+  if (!values?.length) return null;
+  if (state.mode === 'percentile') return percentile(values, state.percentileValue);
+  return averagePercentileRange(values, state.rangeStart, state.rangeEnd);
 }
 
 function initPercentileSlider(win, sorted, ctx) {
-  const slider = win.querySelector('.pctl-slider');
   const sliderContainer = win.querySelector('.sticky-pctl');
-  if (!slider) return;
+  const percentileSlider = win.querySelector('.pctl-single-slider');
+  const rangeStartSlider = win.querySelector('.pctl-range-start');
+  const rangeEndSlider = win.querySelector('.pctl-range-end');
+  if (!sliderContainer || !percentileSlider || !rangeStartSlider || !rangeEndSlider) return;
 
   if (sliderContainer) sliderContainer.classList.remove('hidden');
 
-  function updatePctlValues(pctl) {
+  if (sliderContainer.dataset.mode !== 'percentile' && sliderContainer.dataset.mode !== 'average') {
+    sliderContainer.dataset.mode = 'average';
+  }
+  if (!percentileSlider.value) percentileSlider.value = '50';
+  if (!rangeStartSlider.value) rangeStartSlider.value = '0';
+  if (!rangeEndSlider.value) rangeEndSlider.value = '100';
+  syncAverageRangeInputs(win);
+  setDistributionMode(win, getWindowDistributionMode(win));
+
+  function updatePctlValues() {
+    const state = getDistributionState(win);
     const pick = (key) => {
       const values = sorted[key];
-      return values && values.length > 0 ? percentile(values, pctl) : null;
+      return values && values.length > 0 ? getDistributionMetricValue(values, state) : null;
     };
     const fmt = (value, digits) => value == null ? '—' : value.toFixed(digits);
-    const fmtInt = (value) => value == null ? '—' : Math.round(value).toString();
+    const fmtInt = (value) => value == null ? '—' : formatDistributionDisplayValue(value, (raw) => Math.round(raw).toLocaleString(), 1);
 
     const paid = pick('paid');
     const total = pick('total');
@@ -848,7 +958,8 @@ function initPercentileSlider(win, sorted, ctx) {
       el.className = classNames.join(' ');
     };
 
-    updatePercentileLabel(win, pctl);
+    percentileSlider.value = String(state.percentileValue);
+    updateDistributionLabels(win, state);
 
     set('heroPityPerTarget', fmt(pityPerTarget, 1));
     set('paidPerTarget', fmt(paidPerTarget, 1));
@@ -921,25 +1032,42 @@ function initPercentileSlider(win, sorted, ctx) {
       }
     }
 
-    updateHistogramMarker(win, sorted.paid, pctl);
+    updateHistogramMarker(win, sorted.paid, state);
   }
 
-  slider.value = '50';
-  slider.oninput = () => {
-    updatePctlValues(parseInt(slider.value, 10));
+  percentileSlider.oninput = () => {
+    updatePctlValues();
   };
-  slider.onchange = slider.oninput;
-  updatePctlValues(50);
+  percentileSlider.onchange = percentileSlider.oninput;
+
+  rangeStartSlider.oninput = () => {
+    syncAverageRangeInputs(win, 'start');
+    updatePctlValues();
+  };
+  rangeStartSlider.onchange = rangeStartSlider.oninput;
+
+  rangeEndSlider.oninput = () => {
+    syncAverageRangeInputs(win, 'end');
+    updatePctlValues();
+  };
+  rangeEndSlider.onchange = rangeEndSlider.oninput;
+
+  win.querySelectorAll('[data-pctl-mode]').forEach((button) => {
+    button.onclick = () => {
+      setDistributionMode(win, button.dataset.pctlMode);
+      updatePctlValues();
+    };
+  });
+
+  updatePctlValues();
 }
 
-function updateHistogramMarker(win, paidPulls, pctl) {
+function updateHistogramMarker(win, paidPulls, state) {
   const svg = win.querySelector('.dist-svg');
   if (!svg || !paidPulls?.length) return;
 
   const old = svg.querySelector('.pctl-marker-group');
   if (old) old.remove();
-
-  const value = percentile(paidPulls, pctl);
   const vb = svg.getAttribute('viewBox')?.split(' ').map(Number);
   if (!vb || vb.length < 4) return;
 
@@ -958,28 +1086,71 @@ function updateHistogramMarker(win, paidPulls, pctl) {
   const range = maxVal - minVal;
   if (range === 0) return;
 
-  const xRaw = padL + ((value - minVal) / range) * chartW;
-  const xPos = Math.max(padL, Math.min(padL + chartW, xRaw));
-
   const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
   group.setAttribute('class', 'pctl-marker-group');
 
-  const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-  line.setAttribute('x1', xPos);
-  line.setAttribute('y1', padT);
-  line.setAttribute('x2', xPos);
-  line.setAttribute('y2', padT + (height - padT - padB));
-  line.setAttribute('stroke', '#c47dff');
-  line.setAttribute('stroke-width', '2');
-  line.setAttribute('stroke-opacity', '0.9');
-  group.appendChild(line);
+  const projectX = (value) => {
+    const xRaw = padL + ((value - minVal) / range) * chartW;
+    return Math.max(padL, Math.min(padL + chartW, xRaw));
+  };
 
-  const triangle = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-  triangle.setAttribute('points', `${xPos - 4},${padT - 2} ${xPos + 4},${padT - 2} ${xPos},${padT + 4}`);
-  triangle.setAttribute('fill', '#c47dff');
-  group.appendChild(triangle);
+  if (state.mode === 'percentile') {
+    const value = percentile(paidPulls, state.percentileValue);
+    const xPos = projectX(value);
 
-  svg.appendChild(group);
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', xPos);
+    line.setAttribute('y1', padT);
+    line.setAttribute('x2', xPos);
+    line.setAttribute('y2', padT + (height - padT - padB));
+    line.setAttribute('stroke', '#c47dff');
+    line.setAttribute('stroke-width', '2');
+    line.setAttribute('stroke-opacity', '0.9');
+    group.appendChild(line);
+
+    const triangle = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    triangle.setAttribute('points', `${xPos - 4},${padT - 2} ${xPos + 4},${padT - 2} ${xPos},${padT + 4}`);
+    triangle.setAttribute('fill', '#c47dff');
+    group.appendChild(triangle);
+  } else {
+    const { rangeStart, rangeEnd } = normalizePercentileRange(state.rangeStart, state.rangeEnd);
+    if (!(rangeStart <= 0 && rangeEnd >= 100)) {
+      const startValue = percentile(paidPulls, rangeStart);
+      const endValue = percentile(paidPulls, rangeEnd);
+      const startX = projectX(startValue);
+      const endX = projectX(endValue);
+      const leftX = Math.min(startX, endX);
+      const rightX = Math.max(startX, endX);
+      const chartHeight = height - padT - padB;
+
+      if (rightX - leftX > 1) {
+        const band = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        band.setAttribute('x', leftX);
+        band.setAttribute('y', padT);
+        band.setAttribute('width', rightX - leftX);
+        band.setAttribute('height', chartHeight);
+        band.setAttribute('fill', '#9fd0ff');
+        band.setAttribute('fill-opacity', '0.14');
+        group.appendChild(band);
+      }
+
+      [startX, endX].forEach((xPos, index) => {
+        if (index === 1 && Math.abs(endX - startX) < 0.5) return;
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', xPos);
+        line.setAttribute('y1', padT);
+        line.setAttribute('x2', xPos);
+        line.setAttribute('y2', padT + chartHeight);
+        line.setAttribute('stroke', '#9fd0ff');
+        line.setAttribute('stroke-width', '1.6');
+        line.setAttribute('stroke-opacity', '0.85');
+        line.setAttribute('stroke-dasharray', '4 3');
+        group.appendChild(line);
+      });
+    }
+  }
+
+  if (group.childNodes.length > 0) svg.appendChild(group);
 }
 
 function getDistributionTriggerDescription(trigger) {

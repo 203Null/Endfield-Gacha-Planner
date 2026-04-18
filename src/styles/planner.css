@@ -1863,36 +1863,116 @@ input[type="checkbox"] {
   top: -14px;
   z-index: 8;
   margin: -14px -14px 8px;
-  padding: 12px 14px 10px;
-  background: linear-gradient(to bottom, rgba(26, 29, 39, 0.98), rgba(26, 29, 39, 0.94));
-  border-bottom: 1px solid rgba(46, 51, 71, 0.85);
-  backdrop-filter: blur(8px);
+  padding: 10px 14px 10px;
+  background: linear-gradient(to bottom, rgba(20, 23, 33, 0.99), rgba(20, 23, 33, 0.95));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(10px);
+}
+
+/* ── Header row: toggle left, label right ── */
+.pctl-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .pctl-label {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-dim);
-  margin-bottom: 6px;
-  flex-wrap: wrap;
 }
 
 .pctl-label [data-pctl="sliderLabel"] {
-  color: #c47dff;
-  font-weight: 600;
-  font-size: 12px;
-  min-width: 48px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(126, 184, 255, 0.1);
+  border: 1px solid rgba(126, 184, 255, 0.2);
+  color: #7eb8ff;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.04em;
 }
 
+/* ── Mode toggle pill ── */
+.pctl-mode-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  flex-shrink: 0;
+}
+
+.pctl-mode-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 4px 11px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.pctl-mode-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.pctl-mode-btn.active {
+  background: rgba(126, 184, 255, 0.15);
+  color: #7eb8ff;
+}
+
+/* ── Panels ── */
+.pctl-panel {
+  display: grid;
+  gap: 5px;
+}
+
+/* ── Dual-range: overlay two inputs on same track ── */
+.pctl-dual-track {
+  position: relative;
+  height: 20px;
+  display: flex;
+  align-items: center;
+}
+
+.pctl-dual-track .pctl-slider {
+  position: absolute;
+  width: 100%;
+  pointer-events: none;
+  background: transparent;
+}
+
+.pctl-dual-track .pctl-range-start {
+  background: linear-gradient(to right, #3a7bd5, #6ec6ff 50%, #f7b731);
+}
+
+.pctl-dual-track .pctl-slider::-webkit-slider-thumb {
+  pointer-events: all;
+}
+
+.pctl-dual-track .pctl-slider::-moz-range-thumb {
+  pointer-events: all;
+}
+
+/* ── Slider track ── */
 .pctl-slider {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
-  height: 6px;
+  height: 5px;
   border-radius: 3px;
-  background: linear-gradient(to right, var(--green), var(--blue) 50%, var(--orange));
+  background: linear-gradient(to right, #3a7bd5, #6ec6ff 50%, #f7b731);
   outline: none;
   cursor: pointer;
 }
@@ -1900,31 +1980,38 @@ input[type="checkbox"] {
 .pctl-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  background: #c47dff;
-  border: 2px solid #fff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  background: #ffffff;
+  border: 2px solid rgba(126, 184, 255, 0.8);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
   cursor: pointer;
+  transition: border-color 0.15s, transform 0.1s;
+}
+
+.pctl-slider::-webkit-slider-thumb:hover {
+  border-color: #7eb8ff;
+  transform: scale(1.15);
 }
 
 .pctl-slider::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  background: #c47dff;
-  border: 2px solid #fff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  background: #ffffff;
+  border: 2px solid rgba(126, 184, 255, 0.8);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
   cursor: pointer;
 }
 
+/* ── Ticks ── */
 .pctl-ticks {
   display: flex;
   justify-content: space-between;
   font-size: 9px;
   color: var(--text-dim);
-  margin-top: 2px;
+  margin-top: 1px;
   padding: 0 2px;
-  opacity: 0.6;
+  opacity: 0.5;
 }
