@@ -454,12 +454,17 @@ function renderDistribution(sorted, options = {}) {
     svg += `<path d="${stdCurvePath}" fill="none" stroke="#dfe5ff" stroke-width="1.8" stroke-opacity="0.88" stroke-dasharray="6 4"/>`;
   }
 
-  percentileMarkers.forEach((marker) => {
+  // Percentile markers — tick at actual data position, label at fixed evenly-spaced slot
+  percentileMarkers.forEach((marker, i) => {
     const xRaw = padL + ((marker.val - minVal) / range) * chartW;
-    const xPos = Math.max(padL, Math.min(padL + chartW, xRaw));
-    svg += `<line x1="${xPos}" y1="${padT}" x2="${xPos}" y2="${padT + chartH + 4}" stroke="${marker.color}" stroke-width="1" stroke-opacity="0.7" stroke-dasharray="${marker.p === 50 ? 'none' : '2,2'}"/>`;
-    svg += `<text x="${xPos}" y="${padT + chartH + 16}" text-anchor="middle" fill="${marker.color}" font-size="9" font-family="inherit" opacity="0.9">${marker.label}</text>`;
-    svg += `<text x="${xPos}" y="${padT + chartH + 27}" text-anchor="middle" fill="${marker.color}" font-size="9" font-family="inherit" font-weight="600">${formatDistributionDisplayValue(marker.val, formatValue)}</text>`;
+    const xTick = Math.max(padL, Math.min(padL + chartW, xRaw));
+    const xLabel = padL + (i + 0.5) * chartW / percentileMarkers.length;
+    svg += `<line x1="${xTick}" y1="${padT}" x2="${xTick}" y2="${padT + chartH + 5}" stroke="${marker.color}" stroke-width="1" stroke-opacity="0.7" stroke-dasharray="${marker.p === 50 ? 'none' : '2,2'}"/>`;
+    if (Math.abs(xTick - xLabel) > 1) {
+      svg += `<line x1="${xTick}" y1="${padT + chartH + 5}" x2="${xLabel}" y2="${padT + chartH + 9}" stroke="${marker.color}" stroke-width="0.8" stroke-opacity="0.4"/>`;
+    }
+    svg += `<text x="${xLabel}" y="${padT + chartH + 17}" text-anchor="middle" fill="${marker.color}" font-size="9" font-family="inherit" opacity="0.9">${marker.label}</text>`;
+    svg += `<text x="${xLabel}" y="${padT + chartH + 28}" text-anchor="middle" fill="${marker.color}" font-size="9" font-family="inherit" font-weight="600">${formatDistributionDisplayValue(marker.val, formatValue)}</text>`;
   });
 
   if (selectedRange && !(selectedRange.rangeStart <= 0 && selectedRange.rangeEnd >= 100)) {

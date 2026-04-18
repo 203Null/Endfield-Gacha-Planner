@@ -715,15 +715,18 @@ function renderDistribution(sorted, n, options = {}) {
     svg += `<path d="${stdCurvePath}" fill="none" stroke="#dfe5ff" stroke-width="1.8" stroke-opacity="0.88" stroke-dasharray="6 4"/>`;
   }
 
-  // Percentile markers
-  for (const pm of pVals) {
+  // Percentile markers — tick at actual data position, label at fixed evenly-spaced slot
+  for (let i = 0; i < pVals.length; i++) {
+    const pm = pVals[i];
     const xRaw = padL + ((pm.val - minVal) / range) * chartW;
-    const xPos = Math.max(padL, Math.min(padL + chartW, xRaw));
-    // Tick line
-    svg += `<line x1="${xPos}" y1="${padT}" x2="${xPos}" y2="${padT + chartH + 4}" stroke="${pm.color}" stroke-width="1" stroke-opacity="0.7" stroke-dasharray="${pm.p === 50 ? 'none' : '2,2'}"/>`;
-    // Label below
-    svg += `<text x="${xPos}" y="${padT + chartH + 16}" text-anchor="middle" fill="${pm.color}" font-size="9" font-family="inherit" opacity="0.9">${pm.label}</text>`;
-    svg += `<text x="${xPos}" y="${padT + chartH + 27}" text-anchor="middle" fill="${pm.color}" font-size="9" font-family="inherit" font-weight="600">${formatDistributionDisplayValue(pm.val, formatValue)}</text>`;
+    const xTick = Math.max(padL, Math.min(padL + chartW, xRaw));
+    const xLabel = padL + (i + 0.5) * chartW / pVals.length;
+    svg += `<line x1="${xTick}" y1="${padT}" x2="${xTick}" y2="${padT + chartH + 5}" stroke="${pm.color}" stroke-width="1" stroke-opacity="0.7" stroke-dasharray="${pm.p === 50 ? 'none' : '2,2'}"/>`;
+    if (Math.abs(xTick - xLabel) > 1) {
+      svg += `<line x1="${xTick}" y1="${padT + chartH + 5}" x2="${xLabel}" y2="${padT + chartH + 9}" stroke="${pm.color}" stroke-width="0.8" stroke-opacity="0.4"/>`;
+    }
+    svg += `<text x="${xLabel}" y="${padT + chartH + 17}" text-anchor="middle" fill="${pm.color}" font-size="9" font-family="inherit" opacity="0.9">${pm.label}</text>`;
+    svg += `<text x="${xLabel}" y="${padT + chartH + 28}" text-anchor="middle" fill="${pm.color}" font-size="9" font-family="inherit" font-weight="600">${formatDistributionDisplayValue(pm.val, formatValue)}</text>`;
   }
 
   if (selectedPercentile != null) {
